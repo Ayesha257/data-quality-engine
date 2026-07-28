@@ -2,9 +2,6 @@
 
 Phase 1 -- rule-based data quality checks for messy Excel/CSV files.
 
-Tuned for the Easby teacher dataset in:
-`OneDrive_1_26-01-2026 - latest data set/`
-
 ## Setup
 
 ```bash
@@ -14,7 +11,7 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 ```
 
-## Run on the teacher dataset
+## Run on dataset
 
 ```bash
 # List known files

@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Data Quality Engine runtime outputs
+logs/*
+!logs/.gitkeep
+reports/*
+!reports/.gitkeep
+*.xlsx
+!sample_data/**/*.xlsx
+!tests/fixtures/**/*.xlsx
+# Local scratch / Office lock files
+_profile_*.py
+_probe_*.py
+_meta_out.txt
+_probe_out.txt
+OneDrive_1_26-01-2026 - latest data set/~$*

@@ -6,7 +6,10 @@ xlrd>=2.0
 python-calamine>=0.2
 
 # Outliers / numerics
+# IQR (Phase 1 default) needs only pandas/numpy.
+# PyOD is optional: used only when method="knn" for comparison / future phases.
 scipy>=1.11
+pyod>=2.0
 
 # Fuzzy standardization
 rapidfuzz>=3.9

@@ -33,7 +33,7 @@ Only tools that were actually tested and chosen are listed as **primary**. Where
 |---|---|---|---|
 |1 Header row detection | Custom heuristic (pandas + rules) | openpyxl manual scan | 100% accuracy in testing; no extra dependency |
 |2 Core profiling (missing/dtype/duplicates) | `pandas` built-in (`.isna()`, `.dtypes`, `.duplicated()`) for **exact** row-level issues | `whylogs` (optional fast profile summary) | Exact issue indices are required for the report; whylogs is great for streaming summaries but approximate — keep it optional, not the source of truth |
-|3 Outlier detection | IQR method (custom, via `numpy`/`pandas`) | `PyOD` (KNN) | IQR had 4/4 catch rate, 0 false positives; simpler and more explainable than ML for Phase 1 |
+|3 Outlier detection | IQR method (custom, via `numpy`/`pandas`) — **default** | `PyOD` KNN (`method="knn"`, optional) | IQR had 4/4 catch rate, 0 false positives; explainable and maintainable. PyOD KNN is implemented modularly for comparison/future phases but is **not** Phase 1 default. |
 |4 PII detection & masking | **Microsoft Presidio** (`presidio-analyzer` + `presidio-anonymizer`) + custom regex recognizers (CNIC / local phone) | Raw `spaCy` NER + hand-rolled masker | Presidio wraps spaCy, has a proper anonymizer (avoids the overlap-garble bug), checksum validators (e.g. Luhn for cards), and easy custom recognizers. Still fix overlap resolution explicitly in `mask_pii()` (see 4.5) |
 |5 Fuzzy text matching / standardization | `RapidFuzz` | `TheFuzz` | Matched TheFuzz's 100% accuracy, faster (C++ backed) — still best choice |
 |6 Date/format consistency | `dateutil.parser` | `pandas.to_datetime(errors='coerce')` | dateutil caught 7/8 mixed formats vs pandas' 1/8; fails loudly instead of silently returning `NaT` |

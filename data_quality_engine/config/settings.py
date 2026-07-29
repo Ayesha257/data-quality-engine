@@ -11,8 +11,11 @@ SETTINGS = {
     "header_type_consistency_lookahead": 5,
     "merge_parent_header": True,
     "max_file_size_mb": 200,  # Goods Receipt Report.xls ~87MB
-    # Outliers (IQR)
+    # Outliers — Phase 1 default is IQR; KNN is optional comparison via PyOD
     "iqr_multiplier": 1.5,
+    "outlier_default_method": "iqr",
+    "outlier_knn_neighbors": 5,
+    "outlier_knn_contamination": 0.05,
     # Encoding
     "encoding_confidence_threshold": 0.8,
     # Fuzzy match

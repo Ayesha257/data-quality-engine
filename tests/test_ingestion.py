@@ -114,3 +114,57 @@ def test_header_preview_shape(title_then_header_xlsx: Path):
     assert preview["header"]["values"][0] == "Name"
     assert len(preview["rows_above"]) == 2
     assert len(preview["rows_below"]) == 2
+
+
+def test_detect_header_row_headerless_numeric_scrap():
+    """Leftover pivot helper: numbers interleaved with blanks — no real header."""
+    raw = pd.DataFrame(
+        [
+            [100.0],
+            [None],
+            [200.0],
+            [None],
+            [300.0],
+            [None],
+            [400.0],
+            [None],
+            [500.0],
+            [None],
+            [600.0],
+            [None],
+            [700.0],
+            [None],
+            [800.0],
+            [None],
+        ]
+    )
+    assert detect_header_row(raw) == -1
+    df = load_with_confirmed_header(raw, -1)
+    assert list(df.columns) == ["unnamed_0"]
+    assert len(df) == 8
+    assert df["unnamed_0"].tolist() == [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0]
+
+
+def test_header_preview_headerless():
+    raw = pd.DataFrame([[1], [None], [2]])
+    preview = header_preview(raw, header_row=-1)
+    assert preview["headerless"] is True
+    assert preview["detected_header_row"] == -1
+
+
+def test_blank_row_never_chosen_as_header():
+    raw = pd.DataFrame(
+        [
+            [None, None, None],
+            ["Name", "Age", "City"],
+            ["Ali", 30, "Lahore"],
+        ]
+    )
+    assert detect_header_row(raw) == 1
+
+
+def test_calamine_helper_reports_install_status():
+    from data_quality_engine.engine.ingestion import _calamine_installed
+
+    # Should be True in CI/dev after `pip install python-calamine`
+    assert isinstance(_calamine_installed(), bool)

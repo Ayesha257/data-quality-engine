@@ -69,6 +69,18 @@ def test_confirm_header_row_manual_override():
     assert confirm_header_row(prompt, 0, preview) == 2
 
 
+def test_confirm_header_row_headerless_accept():
+    prompt = FakePrompt(confirm_answers=[True])
+    preview = {
+        "headerless": True,
+        "header": {"values": ["unnamed_0"]},
+        "note": "No credible header",
+        "rows_above": [],
+        "rows_below": [],
+    }
+    assert confirm_header_row(prompt, -1, preview) == -1
+
+
 def test_confirm_processing_scope_full_file():
     prompt = FakePrompt(confirm_answers=[True])
     scope = confirm_processing_scope(prompt, row_count=100, col_count=5, estimated_seconds=1.2)

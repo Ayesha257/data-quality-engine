@@ -19,28 +19,60 @@ from data_quality_engine.engine.checks.missing_values import check_missing_value
 from data_quality_engine.engine.checks.duplicates import check_duplicates
 from data_quality_engine.engine.checks.type_mismatch import check_type_consistency_frame
 
-
 def _print_top_results(df):
-    print("\n=== Task 2 Results ===")
+    print("\n=== Task 2 Results (Detailed) ===")
+    print(f"Rows: {len(df)} | Columns: {df.shape[1]}")
 
+    # ---- Missing ----
     missing = check_missing_values(df)
-    dup = check_duplicates(df)[0]
-    type_mismatch = check_type_consistency_frame(df)
-
-    print("\n[Missing Values]")
+    print("\n[1] Missing Values  (Completeness)")
+    print("-" * 70)
+    print(f"{'Column':40} {'Missing':>10} {'%':>10} {'Status':>10}")
+    print("-" * 70)
+    total_missing = 0
     for r in missing:
-        if r.issues_found > 0:
-            pct = r.details.get("missing_pct")
-            print(f"- {r.column}: {r.issues_found} missing ({pct}%)")
+        total_missing += r.issues_found
+        pct = r.details.get("missing_pct", 0)
+        print(f"{str(r.column):40} {r.issues_found:10d} {pct:10.4f} {r.status:>10}")
+    print("-" * 70)
+    print(f"TOTAL missing cells: {total_missing}")
+    print(f"Columns with missing: {sum(1 for r in missing if r.issues_found > 0)} / {len(missing)}")
 
-    print("\n[Duplicates]")
-    print(f"- status: {dup.status}, duplicate_rows: {dup.issues_found}")
+    # ---- Duplicates ----
+    dup = check_duplicates(df)[0]
+    print("\n[2] Duplicates  (Uniqueness)")
+    print("-" * 70)
+    print(f"Status          : {dup.status}")
+    print(f"Duplicate rows  : {dup.issues_found}")
+    print(f"Total rows      : {dup.details.get('total_rows')}")
+    sample_idx = dup.details.get("row_indices", [])
+    if sample_idx:
+        print(f"Sample row idx  : {sample_idx[:20]}")
+    else:
+        print("Sample row idx  : none (no full-row duplicates)")
 
-    print("\n[Type Mismatch]")
-    for r in type_mismatch:
+    # ---- Type mismatch ----
+    type_results = check_type_consistency_frame(df)
+    print("\n[3] Type Mismatch  (Validity)")
+    print("-" * 70)
+    print(f"{'Column':40} {'Issues':>10} {'Dominant':>12} {'Status':>10}")
+    print("-" * 70)
+    bad_cols = 0
+    for r in type_results:
         if r.issues_found > 0:
-            dom = r.details.get("dominant_type")
-            print(f"- {r.column}: {r.issues_found} mismatches (dominant={dom})")
+            bad_cols += 1
+        dominant = r.details.get("dominant_type", "-")
+        print(f"{str(r.column):40} {r.issues_found:10d} {str(dominant):>12} {r.status:>10}")
+        sample = r.details.get("sample_values", [])
+        if sample:
+            print(f"  sample bad values: {sample[:5]}")
+    print("-" * 70)
+    print(f"Columns with type issues: {bad_cols} / {len(type_results)}")
+
+    print("\n=== Summary ===")
+    print(f"Missing-values check: {len(missing)} columns scanned")
+    print(f"Duplicates check    : {dup.status} ({dup.issues_found} duplicate rows)")
+    print(f"Type-mismatch check : {len(type_results)} columns scanned, {bad_cols} with issues")
 
 
 def run_task1_task2(filepath: str, sheet_name: str | None = None):

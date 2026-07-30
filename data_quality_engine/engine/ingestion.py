@@ -1,6 +1,6 @@
 """Excel/CSV ingestion and header-row detection.
 
-Supports the Easby teacher dataset formats:
+Supports the Easby dataset formats:
   .xlsx/.xlsm via openpyxl (calamine fallback for broken stylesheets)
   .xls via xlrd
   .csv via pandas (encoding sniffed with chardet)

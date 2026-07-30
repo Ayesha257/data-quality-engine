@@ -70,18 +70,56 @@ def _read_csv_raw(path: Path) -> dict[str, pd.DataFrame]:
     return {path.stem: df}
 
 
+def _calamine_installed() -> bool:
+    try:
+        import python_calamine  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _read_excel_via_calamine_direct(path: Path) -> dict[str, pd.DataFrame]:
+    """
+    Direct python-calamine read (bypasses pandas engine registry).
+    Needed for Sage X3 exports whose stylesheets crash openpyxl
+    (e.g. ValueError: Duplicate position 0.0 on gradient fills).
+    """
+    from python_calamine import CalamineWorkbook
+
+    wb = CalamineWorkbook.from_path(str(path))
+    sheets: dict[str, pd.DataFrame] = {}
+    for name in wb.sheet_names:
+        rows = wb.get_sheet_by_name(name).to_python(skip_empty_area=False)
+        if not rows:
+            sheets[name] = pd.DataFrame()
+            continue
+        width = max(len(r) for r in rows)
+        normalized = [list(r) + [None] * (width - len(r)) for r in rows]
+        sheets[name] = pd.DataFrame(normalized, dtype=object)
+    return sheets
+
+
 def _read_excel_raw(path: Path) -> dict[str, pd.DataFrame]:
     suffix = path.suffix.lower()
     errors: list[str] = []
+    last_exc: Exception | None = None
 
     if suffix in _EXCEL_XLRD:
         engines = ["xlrd"]
     else:
-        # calamine first for stubborn/corrupt Sage X3 exports, then openpyxl
+        # calamine first: openpyxl dies on some Sage X3 stylesheets
+        # (malformed gradient fill stops). openpyxl remains the fallback.
         engines = ["calamine", "openpyxl"]
 
-    last_exc: Exception | None = None
     for engine in engines:
+        if engine == "calamine" and not _calamine_installed():
+            errors.append(
+                "calamine: package 'python-calamine' is not installed "
+                "(pip install python-calamine). Required for Sage X3 / "
+                "broken-stylesheet .xlsx files."
+            )
+            continue
         try:
             sheets = pd.read_excel(
                 path,
@@ -94,6 +132,14 @@ def _read_excel_raw(path: Path) -> dict[str, pd.DataFrame]:
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             errors.append(f"{engine}: {exc}")
+
+    # Last resort: talk to python-calamine directly (pandas engine quirk / version)
+    if suffix in _EXCEL_OPENPYXL and _calamine_installed():
+        try:
+            return _read_excel_via_calamine_direct(path)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            errors.append(f"python_calamine.direct: {exc}")
 
     raise ValueError(
         "Unable to read workbook with available engines. "
@@ -212,6 +258,38 @@ def _header_label_score(row: pd.Series) -> float:
     return (token_hits / len(vals)) + (0.25 * unique_ratio) - (id_like / len(vals))
 
 
+def _row_non_null_values(row: pd.Series) -> list[str]:
+    vals: list[str] = []
+    for v in row.tolist():
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            continue
+        text = str(v).strip()
+        if text:
+            vals.append(text)
+    return vals
+
+
+def _is_credible_header_row(row: pd.Series, score: float, n_cols: int) -> bool:
+    """
+    Reject blank / pure-numeric junk rows that can win on type_consistency alone
+    (seen on leftover pivot helper sheets with interleaved blank rows).
+    """
+    vals = _row_non_null_values(row)
+    if not vals:
+        return False
+    # A real header needs some string labels, not only IDs/numbers
+    stringy = sum(1 for v in vals if not _NUMERIC_LIKE_RE.match(v) and not _ID_LIKE_RE.match(v))
+    if stringy == 0:
+        return False
+    # Absolute floor: empty/near-empty sheets often score slightly negative
+    if score < 0.15:
+        return False
+    # Extremely sparse relative to wide sheets is not a header
+    if len(vals) < max(1, min(2, n_cols // 10)) and n_cols > 5:
+        return False
+    return True
+
+
 def detect_header_row(
     raw_df: pd.DataFrame,
     max_scan_rows: int | None = None,
@@ -220,7 +298,9 @@ def detect_header_row(
     Custom heuristic:
     Score = string_density + type_consistency_below + header_label_score - sparsity_penalty
     Prefer rows that look like labels sitting above typed data.
-    Returns 0-based int. Caller must confirm with the user.
+
+    Returns 0-based int, or -1 when no credible header exists (headerless /
+    leftover numeric scrap sheets). Caller must confirm with the user.
     """
     if raw_df is None or raw_df.empty:
         raise ValueError("Cannot detect header row on an empty DataFrame.")
@@ -231,17 +311,20 @@ def detect_header_row(
 
     best_idx = 0
     best_score = float("-inf")
+    scored: list[tuple[int, float]] = []
 
     for i in range(scan):
         row = raw_df.iloc[i]
-        density = _non_null_string_density(row)
-        vals = [
-            str(v).strip()
-            for v in row.tolist()
-            if not (v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() == "")
-        ]
+        vals = _row_non_null_values(row)
         non_null = len(vals)
         cols = raw_df.shape[1]
+
+        # Blank rows must never win (they previously beat numeric scrap via consistency)
+        if non_null == 0:
+            scored.append((i, float("-inf")))
+            continue
+
+        density = _non_null_string_density(row)
         # Sparse / title banners must not beat real header rows
         if non_null < max(3, cols // 3):
             sparsity_penalty = 1.5
@@ -256,9 +339,18 @@ def detect_header_row(
         label_score = _header_label_score(row)
         early_bonus = max(0.0, (scan - i) * 0.001)
         score = density + consistency + (1.25 * label_score) - sparsity_penalty + early_bonus
+        scored.append((i, score))
         if score > best_score:
             best_score = score
             best_idx = i
+
+    if not _is_credible_header_row(raw_df.iloc[best_idx], best_score, raw_df.shape[1]):
+        # Try next-best credible candidate before declaring headerless
+        ranked = sorted(scored, key=lambda t: t[1], reverse=True)
+        for idx, score in ranked:
+            if _is_credible_header_row(raw_df.iloc[idx], score, raw_df.shape[1]):
+                return int(idx)
+        return -1
 
     return int(best_idx)
 
@@ -316,11 +408,6 @@ def header_preview(
     context_rows: int = 5,
 ) -> dict[str, Any]:
     n = len(raw_df)
-    if header_row < 0 or header_row >= n:
-        raise IndexError(f"header_row {header_row} out of range for DataFrame of length {n}")
-
-    above_start = max(0, header_row - context_rows)
-    below_end = min(n, header_row + 1 + context_rows)
 
     def _rows(start: int, end: int) -> list[dict[str, Any]]:
         out = []
@@ -328,8 +415,29 @@ def header_preview(
             out.append({"row_index": idx, "values": raw_df.iloc[idx].tolist()})
         return out
 
+    # header_row == -1 means "no credible header" (headerless sheet)
+    if header_row < 0:
+        return {
+            "detected_header_row": -1,
+            "headerless": True,
+            "note": (
+                "No credible header row found — sheet looks like numeric scrap "
+                "or has no label row. Will load with synthetic column names."
+            ),
+            "rows_above": [],
+            "header": {"row_index": -1, "values": [f"unnamed_{i}" for i in range(raw_df.shape[1])]},
+            "rows_below": _rows(0, min(n, context_rows)),
+        }
+
+    if header_row >= n:
+        raise IndexError(f"header_row {header_row} out of range for DataFrame of length {n}")
+
+    above_start = max(0, header_row - context_rows)
+    below_end = min(n, header_row + 1 + context_rows)
+
     return {
         "detected_header_row": header_row,
+        "headerless": False,
         "rows_above": _rows(above_start, header_row),
         "header": {"row_index": header_row, "values": raw_df.iloc[header_row].tolist()},
         "rows_below": _rows(header_row + 1, below_end),
@@ -346,10 +454,23 @@ def load_with_confirmed_header(
     Reindexes the raw dataframe using the confirmed header row.
     For Easby Booked Orders-style exports, optionally merges the parent
     label row above the detected header.
+
+    header_row == -1 loads the sheet as headerless (synthetic unnamed_* columns,
+    keeps all non-blank data rows).
     """
     if raw_df is None or raw_df.empty:
         raise ValueError("Cannot load header from an empty DataFrame.")
-    if header_row < 0 or header_row >= len(raw_df):
+
+    # Headerless: leftover scrap sheets with no label row
+    if header_row < 0:
+        names = _unique_names([f"unnamed_{i}" for i in range(raw_df.shape[1])])
+        body = raw_df.copy()
+        body.columns = names
+        body = body.reset_index(drop=True)
+        body = body.dropna(how="all").reset_index(drop=True)
+        return body
+
+    if header_row >= len(raw_df):
         raise IndexError(
             f"header_row {header_row} out of range for DataFrame of length {len(raw_df)}"
         )

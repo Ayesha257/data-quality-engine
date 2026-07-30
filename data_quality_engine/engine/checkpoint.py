@@ -67,20 +67,38 @@ def confirm_header_row(
     """
     Checkpoint 1 - Header row confirmation.
     If the user rejects the detection, ask for a manual override index.
+    detected_row == -1 means no credible header (headerless load).
     """
+    headerless = detected_row < 0 or bool(preview.get("headerless"))
     details = {
         "detected_header_row": detected_row,
+        "headerless": headerless,
         "header_values": preview.get("header", {}).get("values"),
         "rows_above": preview.get("rows_above"),
         "rows_below": preview.get("rows_below"),
     }
+    if preview.get("note"):
+        details["note"] = preview["note"]
+
+    if headerless:
+        message = (
+            "No credible header row found on this sheet. "
+            "I will load it as headerless with synthetic column names (unnamed_*)."
+        )
+        if prompt.confirm(message, details):
+            return -1
+        return prompt.ask_int(
+            "Enter header row index (0-based), or -1 for headerless",
+            default=-1,
+        )
+
     message = (
         f"I believe row {detected_row} is the header. Here's what I found:"
     )
     if prompt.confirm(message, details):
         return detected_row
     return prompt.ask_int(
-        "Enter the correct header row index (0-based)",
+        "Enter the correct header row index (0-based), or -1 for headerless",
         default=detected_row,
     )
 

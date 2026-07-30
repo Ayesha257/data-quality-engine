@@ -1,56 +1,54 @@
-# data-quality-engine
+# Data-quality-engine
 
-Phase 1 -- rule-based data quality checks for messy Excel/CSV files.
+Building a rule-based Data Quality Engine that turns messy client Excel/CSV files into clean, explainable data quality reports — automated header detection, missing value/duplicate/outlier checks, and dimension-based scoring, with zero AI black-boxing so every result is traceable. Currently building out Phase 1 (core checks) with PII masking and full reporting coming next.
+
 
 ## Setup
-
+ 
 ```bash
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-python -m spacy download en_core_web_sm
 ```
-
-## Run on dataset
-
-```bash
-# List known files
-python -m data_quality_engine.main --list-dataset
-
-# Non-interactive run (recommended first pass)
-python -m data_quality_engine.main --dataset classic --yes --format xlsx
-python -m data_quality_engine.main --dataset customers --yes
-python -m data_quality_engine.main --dataset booked --yes --sheet "Booked Orders (New - YTD)"
-
-# Or pass a full path
-python -m data_quality_engine.main "OneDrive_1_26-01-2026 - latest data set\Stock Report.xls" --yes
-```
-
-Dataset keys: `booked`, `classic`, `customers`, `suppliers`, `stock`, `products`, `goods`, `invoices`, `openpo`
-
-Reports -> `reports/`  
-Logs -> `logs/`
-
-## What this engine checks on these files
-
-- Header detection (title rows, multi-row headers like Booked Orders)
-- Missing values + suspicious zeros (e.g. GBP Amt-tax / costs that are 0)
-- Duplicates, type mismatches, IQR outliers
-- Date/format consistency + cross-column date order rules
-- Encoding detect/repair
-- Fuzzy text standardization
-- PII mask (UK phones, emails, names) -- counts only in reports
-- Referential integrity against Customer / Supplier / Product masters when present
-- 7-dimension scoring + PDF/XLSX report
+ 
+## Tasks
+ 
+**Task 1 — Header Detection**
+- `main.py` / `engine/ingestion.py` — detects header row, asks for confirmation
+- `notebooks/01_task1_header_detection.ipynb` — exploratory version
+  
+**Task 2 — Core Profiling**
+- `main.py` / `engine/checks/` — missing values, duplicates, type mismatch
+- `notebooks/02_task2_core_profiling.ipynb` — exploratory version
+  
+**Task 3 — Outlier Detection**
+- `run_task3_detailed.py` — IQR (default) + optional KNN
+- `notebooks/03_task3_outlier_detection.ipynb` — exploratory version
 
 ## Formats supported
-
-`.xlsx` (openpyxl, calamine fallback), `.xls` (xlrd), `.csv`
-
+ 
+`.xlsx`/`.xlsm` (openpyxl, calamine fallback), `.xls` (xlrd), `.csv`
+ 
+## Run
+ 
+```bash
+# Task 1 + 2 on one file
+python main.py "path/to/your_file.xlsx"
+ 
+# Task 1 + 2 on a specific sheet
+python main.py "path/to/your_file.xlsx" --sheet "Sheet Name"
+ 
+# Task 1 + 2 batch run (edit file paths inside the script first)
+.\run_all_task1_task2.ps1
+ 
+# Task 3 demo (edit file path inside the script first)
+python run_task3_detailed.py
+```
+ 
+> Note: this repo doesn't include the dataset — point the commands above at your own `.xlsx`/`.xls`/`.csv` file. `run_all_task1_task2.ps1` and `run_task3_detailed.py` have hardcoded file paths near the top that you'll need to update to match your own files.
+ 
 ## Tests
-
+ 
 ```bash
 python -m pytest tests -q
 ```
-
-See `plan.md` for architecture.

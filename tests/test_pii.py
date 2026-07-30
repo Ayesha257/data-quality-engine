@@ -1,0 +1,129 @@
+"""Tests for PII detection, overlap resolution, and masking."""
+
+from __future__ import annotations
+
+import pandas as pd
+
+from data_quality_engine.engine.pii.detect_pii import (
+    TYPE_ADDRESS,
+    TYPE_BANK_ACCOUNT,
+    TYPE_CARD,
+    TYPE_CNIC,
+    TYPE_DOB,
+    TYPE_DRIVER_LICENSE,
+    TYPE_EMAIL,
+    TYPE_IBAN,
+    TYPE_IP_ADDRESS,
+    TYPE_MOBILE,
+    TYPE_PASSPORT,
+    TYPE_PHONE,
+    TYPE_POSTAL_CODE,
+    TYPE_SSN,
+    TYPE_URL,
+    TYPE_USERNAME,
+    detect_pii,
+    detect_pii_in_series,
+    resolve_overlaps,
+)
+from data_quality_engine.engine.pii.mask_pii import mask_pii
+
+
+def test_detect_email_and_phone():
+    text = "Contact ali@example.com or 03001234567"
+    hits = detect_pii(text)
+    types = {h["type"] for h in hits}
+    assert "EMAIL" in types
+    assert "MOBILE" in types
+
+
+def test_detect_cnic():
+    text = "CNIC 42101-1234567-1 on file"
+    hits = detect_pii(text)
+    assert any(h["type"] == "CNIC" for h in hits)
+
+
+def test_detect_extended_entities():
+    text = (
+        "SSN 123-45-6789, passport AB1234567, "
+        "IBAN PK36SCBL0000001123456702, "
+        "account 123456789012, dl DL-12345678, "
+        "dob 1990-01-02, zip 90210, "
+        "server 192.168.1.10, site https://example.com, "
+        "user @talha_dev, address 221B Baker Street"
+    )
+    types = {h["type"] for h in detect_pii(text)}
+    assert TYPE_SSN in types
+    assert TYPE_PASSPORT in types
+    assert TYPE_IBAN in types
+    assert TYPE_BANK_ACCOUNT in types
+    assert TYPE_DRIVER_LICENSE in types
+    assert TYPE_DOB in types
+    assert TYPE_POSTAL_CODE in types
+    assert TYPE_IP_ADDRESS in types
+    assert TYPE_URL in types
+    assert TYPE_USERNAME in types
+    assert TYPE_ADDRESS in types
+
+
+def test_overlap_keeps_longer_match():
+    matches = [
+        {"type": "NAME", "start": 0, "end": 4, "value": "John", "score": 0.5},
+        {"type": "PHONE", "start": 2, "end": 12, "value": "hn5551234", "score": 0.9},
+    ]
+    resolved = resolve_overlaps(matches)
+    assert len(resolved) == 1
+    assert resolved[0]["type"] == "PHONE"
+
+
+def test_mask_partial_phone_and_full_email():
+    text = "ali@example.com / 03001234567"
+    hits = detect_pii(text)
+    masked = mask_pii(text, hits, mode="partial")
+    assert "ali@example.com" not in masked
+    assert "a***@example.com" in masked
+    assert "4567" in masked  # last 4 of phone kept
+    assert "03001234567" not in masked
+
+
+def test_mask_reverse_order_no_garble():
+    text = "AA 03001234567 BB"
+    hits = [
+        {"type": "PHONE", "start": 3, "end": 14, "value": "03001234567", "score": 0.9},
+        {"type": "NAME", "start": 0, "end": 2, "value": "AA", "score": 0.5},
+    ]
+    masked = mask_pii(text, hits, mode="partial")
+    assert "[NAME]" in masked
+    assert "4567" in masked
+    assert "03001234567" not in masked
+
+
+def test_mask_cnic_shape():
+    text = "CNIC 35202-1234567-1"
+    masked = mask_pii(text, detect_pii(text), mode="partial")
+    assert "35202-1234567-1" not in masked
+    assert "*****-*******-1" in masked
+
+
+def test_mask_card_keeps_last_four():
+    text = "card 4111 1111 1111 1111"
+    masked = mask_pii(text, detect_pii(text), mode="partial")
+    assert "1111" in masked
+    assert "4111 1111 1111 1111" not in masked
+
+
+def test_detect_pii_in_series_uses_column_hints():
+    # account-like value should not be flagged as BANK_ACCOUNT in an unrelated column
+    s_misc = pd.Series(["123456789012"], name="quantity")
+    summary_misc = detect_pii_in_series(s_misc)
+    assert summary_misc["rows_with_pii"] == 0
+
+    # same value in account column should be flagged
+    s_acc = pd.Series(["123456789012"], name="bank_account")
+    summary_acc = detect_pii_in_series(s_acc)
+    assert summary_acc["rows_with_pii"] == 1
+    assert TYPE_BANK_ACCOUNT in summary_acc["type_counts"]
+
+
+def test_detect_empty():
+    assert detect_pii("") == []
+    assert detect_pii(None) == []  # type: ignore[arg-type]

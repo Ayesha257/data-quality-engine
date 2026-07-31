@@ -2,10 +2,11 @@
 
 Catches the "Paid / paid / PAID" and "Lahore / lahore " class of problem:
 the same real-world value written in more than one raw form within a
-single column. Detection is case/whitespace normalization only (Phase 1
-scope). True abbreviation collapsing ("Lahore" vs "LHR") needs fuzzy
-matching (rapidfuzz), which is intentionally deferred -- it's listed as a
-stretch goal, not core, and rapidfuzz is not a current dependency.
+single column. Detection is case/whitespace normalization only.
+
+True abbreviation collapsing ("Lahore" vs "LHR") is handled by RapidFuzz
+in ``engine/standardization/fuzzy_match.py`` (plan.md Task 5 / Section 4.4).
+Both feed the consistency dimension; they are complementary, not duplicates.
 
 Only runs on columns classify_columns() marks "categorical" or
 "identifier" -- those are the roles where "the same concept represented

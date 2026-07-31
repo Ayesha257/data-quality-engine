@@ -1,7 +1,8 @@
-"""Small end-to-end test: main.py runs Task 1-4 on a sample sheet without error."""
+"""End-to-end test: main.run_pipeline covers Tasks 1-6 on sample data."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from data_quality_engine.engine.checkpoint import UserPrompt
@@ -25,15 +26,16 @@ class AutoConfirmPrompt(UserPrompt):
 SAMPLE = Path(__file__).resolve().parents[1] / "src" / "sample_data" / "sample_data.xlsx"
 
 
-def test_run_task1_task2_completes_all_four_tasks(capsys):
+def test_run_pipeline_completes_all_tasks(capsys):
     assert SAMPLE.exists(), f"sample data missing: {SAMPLE}"
 
-    main.run_task1_task2(str(SAMPLE), prompt=AutoConfirmPrompt())
+    main.run_pipeline(str(SAMPLE), prompt=AutoConfirmPrompt())
 
     out = capsys.readouterr().out
     assert "Task 2 Results" in out
     assert "Task 3 Results (Outlier Detection)" in out
     assert "Task 4 Results (PII Detection & Masking)" in out
+    assert "Plan Task 5 Results (Fuzzy Text Standardization)" in out
     assert "Task 5 Results (Schema, Consistency, Validity, Freshness)" in out
     assert "Task 6 Results (Data Quality Score)" in out
     assert "Data Quality Score:" in out
@@ -41,21 +43,20 @@ def test_run_task1_task2_completes_all_four_tasks(capsys):
     assert "Done: Task 1-6 completed." in out
 
 
-def test_run_task1_task2_writes_jsonl_log(tmp_path, monkeypatch):
+def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
     # Redirect logs to a temp dir so the test doesn't depend on / pollute
     # the repo's real logs/ directory.
     from data_quality_engine.config.settings import SETTINGS
 
     monkeypatch.setitem(SETTINGS, "logs_dir", tmp_path)
 
-    main.run_task1_task2(str(SAMPLE), prompt=AutoConfirmPrompt())
+    main.run_pipeline(str(SAMPLE), prompt=AutoConfirmPrompt())
 
     log_files = list(tmp_path.glob("run_*.jsonl"))
     assert len(log_files) == 1
 
     content = log_files[0].read_text(encoding="utf-8").strip()
     assert content, "expected at least one JSONL log line"
-    import json
 
     line = json.loads(content.splitlines()[0])
     assert line["details"]["file"] == "sample_data.xlsx"
@@ -67,6 +68,7 @@ def test_run_task1_task2_writes_jsonl_log(tmp_path, monkeypatch):
         "type_mismatch",
         "outliers",
         "pii",
+        "fuzzy_standardization",
         "schema_quality",
         "consistency",
         "validity",

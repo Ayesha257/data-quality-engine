@@ -18,12 +18,13 @@ from data_quality_engine.engine.pii.detect_pii import (
     TYPE_PHONE,
     TYPE_POSTAL_CODE,
     TYPE_PASSPORT,
+    TYPE_PASSWORD,
     TYPE_USERNAME,
     resolve_overlaps,
 )
 
 
-_FULL_ALWAYS = {TYPE_NAME, TYPE_DOB}
+_FULL_ALWAYS = {TYPE_NAME, TYPE_DOB, TYPE_PASSWORD}
 
 
 def _token_for(pii_type: str) -> str:

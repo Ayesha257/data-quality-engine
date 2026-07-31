@@ -16,6 +16,7 @@ from data_quality_engine.engine.pii.detect_pii import (
     TYPE_IP_ADDRESS,
     TYPE_MOBILE,
     TYPE_PASSPORT,
+    TYPE_PASSWORD,
     TYPE_PHONE,
     TYPE_POSTAL_CODE,
     TYPE_SSN,
@@ -127,3 +128,27 @@ def test_detect_pii_in_series_uses_column_hints():
 def test_detect_empty():
     assert detect_pii("") == []
     assert detect_pii(None) == []  # type: ignore[arg-type]
+
+
+def test_password_column_detected_and_fully_masked():
+    # Column-name-hinted, not regex-based -- arbitrary credential content.
+    s = pd.Series(["Summer2024!", "hunter2", "p@ssW0rd"], name="Password")
+    summary = detect_pii_in_series(s)
+    assert summary["rows_with_pii"] == 3
+    assert summary["type_counts"].get(TYPE_PASSWORD) == 3
+    for masked in summary["masked_rows"].values():
+        assert masked == "[PASSWORD]"
+
+
+def test_pin_and_passcode_columns_also_detected_as_password():
+    for col_name in ("portal_pin", "temp_passcode", "security_answer"):
+        s = pd.Series(["abc123"], name=col_name)
+        summary = detect_pii_in_series(s)
+        assert summary["rows_with_pii"] == 1
+        assert TYPE_PASSWORD in summary["type_counts"]
+
+
+def test_unrelated_column_not_flagged_as_password():
+    s = pd.Series(["abc123", "xyz789"], name="product_code")
+    summary = detect_pii_in_series(s)
+    assert TYPE_PASSWORD not in summary["type_counts"]

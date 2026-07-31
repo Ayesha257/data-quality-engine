@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from data_quality_engine.config.settings import SETTINGS
+from data_quality_engine.engine.column_classifier import classify_columns
 from data_quality_engine.engine.models import CheckResult
 
 SUPPORTED_METHODS = ("iqr", "knn")
@@ -253,9 +254,25 @@ def detect_outliers_frame(df: pd.DataFrame, method: str = "iqr") -> list[CheckRe
                 )
             ]
 
+        # Issue 1 fix: classify columns first so IQR/KNN never runs on
+        # identifier-like columns (invoice numbers, customer codes, phone
+        # numbers, postcodes) that happen to have numeric-looking values.
+        classification = classify_columns(df)
+
         for col in df.columns:
             numeric = _to_numeric_series(df[col])
             if numeric.notna().sum() == 0:
+                continue
+            role = classification.get(col)
+            if role is not None and role != "measurement":
+                results.append(
+                    _passed_skip(
+                        str(col),
+                        "skipped_non_measurement_column",
+                        method=method or "iqr",
+                        classified_role=role,
+                    )
+                )
                 continue
             results.append(detect_outliers(df[col], method=method))
 

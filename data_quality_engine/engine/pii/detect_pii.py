@@ -32,6 +32,7 @@ TYPE_POSTAL_CODE = "POSTAL_CODE"
 TYPE_IP_ADDRESS = "IP_ADDRESS"
 TYPE_URL = "URL"
 TYPE_USERNAME = "USERNAME"
+TYPE_PASSWORD = "PASSWORD"
 
 # More specific types win on equal-length overlaps
 _TYPE_PRIORITY = {
@@ -52,6 +53,7 @@ _TYPE_PRIORITY = {
     TYPE_USERNAME: 2,
     TYPE_ADDRESS: 2,
     TYPE_NAME: 2,
+    TYPE_PASSWORD: 6,
 }
 
 # Pakistan CNIC: 12345-1234567-1 (with or without dashes)
@@ -334,6 +336,14 @@ def _infer_expected_types(column_name: str | None) -> set[str] | None:
         hints.add(TYPE_URL)
     if any(k in name for k in ("username", "user name", "handle", "login")):
         hints.add(TYPE_USERNAME)
+    # Passwords/PINs/security answers: value-level regex isn't reliable for
+    # free-form credential strings, so this relies on column-name context
+    # the same way TYPE_BANK_ACCOUNT does.
+    if any(
+        k in name.replace("_", " ")
+        for k in ("password", "pwd", "pin", "passcode", "security answer", "security question")
+    ):
+        hints.add(TYPE_PASSWORD)
     return hints or None
 
 
@@ -395,11 +405,30 @@ def detect_pii_in_series(series) -> dict[str, Any]:
     inferred = _infer_expected_types(col_name)
     allowed_types = inferred or _BASELINE_TYPES
 
+    # Passwords/PINs/security answers have no reliable value-level regex
+    # (free-form content), so a password-hinted column name is treated as
+    # sufficient evidence: the whole non-empty cell is masked, rather than
+    # trying to locate a "password-shaped" substring within it.
+    password_hinted = bool(inferred and TYPE_PASSWORD in inferred)
+
     for idx, value in series.items():
         if value is None or (isinstance(value, float) and pd.isna(value)):
             continue
         raw = str(value)
-        found = detect_pii(raw, allowed_types=allowed_types)
+        if password_hinted:
+            if not raw.strip():
+                continue
+            found = [
+                {
+                    "type": TYPE_PASSWORD,
+                    "start": 0,
+                    "end": len(raw),
+                    "value": raw,
+                    "score": 0.99,
+                }
+            ]
+        else:
+            found = detect_pii(raw, allowed_types=allowed_types)
         if not found:
             continue
         issue_rows += 1

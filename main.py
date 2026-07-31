@@ -27,6 +27,10 @@ from data_quality_engine.engine.checks.validity import check_validity_frame
 from data_quality_engine.engine.checks.freshness import check_freshness_frame
 from data_quality_engine.engine.column_classifier import classify_columns
 from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
+from data_quality_engine.engine.standardization.fuzzy_match import (
+    check_fuzzy_standardization_frame,
+    standardize_frame,
+)
 from data_quality_engine.engine.scoring import compute_data_quality_score
 from data_quality_engine.engine.logging_utils import get_logger, log_event
 import logging
@@ -100,7 +104,7 @@ def _print_top_results(df):
 
     # ---- Type mismatch ----
     type_results = check_type_consistency_frame(df)
-    print("\n[3] Type Mismatch  (Validity)")
+    print("\n[3] Type Mismatch  (Type Reliability)")
     print("-" * 70)
     print(f"{'Column':40} {'Issues':>10} {'Dominant':>12} {'Status':>10}")
     print("-" * 70)
@@ -129,7 +133,7 @@ def _print_top_results(df):
         "type_mismatch_columns_with_issues": bad_cols,
         # Raw CheckResults, kept alongside the summary counts above so
         # scoring.py can consume them directly -- see compute_data_quality_score
-        # call in run_task1_task2(). Not printed, not part of the JSONL log.
+        # call in run_pipeline(). Not printed, not part of the JSONL log.
         "missing_results": missing,
         "duplicate_result": dup,
         "type_results": type_results,
@@ -141,7 +145,7 @@ def _print_task3_results(df):
     print("\n=== Task 3 Results (Outlier Detection) ===")
     results = detect_outliers_frame(df)
 
-    print("\n[4] Outliers  (Validity)")
+    print("\n[4] Outliers  (Outlier Risk)")
     print("-" * 70)
     print(f"{'Column':40} {'Issues':>10} {'Method':>10} {'Status':>10}")
     print("-" * 70)
@@ -211,6 +215,62 @@ def _print_task4_results(df):
         # column_name -> detect_pii_in_series() summary, for scoring.py's
         # separate (never-part-of-composite) privacy risk report.
         "pii_summary_by_column": per_column_summaries,
+    }
+
+
+def _print_fuzzy_standardization_results(df, roles):
+    """
+    plan.md Task 5 (Section 4.4): RapidFuzz text standardization.
+
+    Runs after PII (pipeline step g). Reports near-duplicate clusters and
+    the {original: canonical} mappings without mutating the working frame
+    in the CLI (callers that want cleaned data use apply_standardization /
+    standardize_frame explicitly).
+    """
+    print("\n=== Plan Task 5 Results (Fuzzy Text Standardization) ===")
+    print("\n[5b] Fuzzy Standardization  (Consistency - RapidFuzz)")
+    print("-" * 70)
+    print(f"{'Column':40} {'Remap rows':>12} {'Clusters':>10} {'Status':>10}")
+    print("-" * 70)
+
+    results = check_fuzzy_standardization_frame(df, roles=roles)
+    mappings = standardize_frame(df, roles=roles)
+    flagged = 0
+    for r in results:
+        if r.details.get("reason", "").startswith("skipped_"):
+            continue
+        if r.issues_found > 0:
+            flagged += 1
+        clusters = r.details.get("clusters_collapsed", 0)
+        print(
+            f"{str(r.column):40} {r.issues_found:12d} {clusters:10d} {r.status:>10}"
+        )
+        sample = r.details.get("mapping_sample") or {}
+        if sample:
+            preview = list(sample.items())[:3]
+            print(f"  mapping sample: {preview}")
+        for cluster in (r.details.get("clusters") or [])[:2]:
+            print(
+                f"  cluster -> {cluster.get('canonical')!r} "
+                f"variants={cluster.get('variants')}"
+            )
+    print("-" * 70)
+    print(f"Columns with fuzzy remaps: {flagged}")
+    print(f"Columns with non-empty mappings built: {len(mappings)}")
+    print(
+        "Note: mapping is reported here; apply via "
+        "apply_standardization(series, mapping) when cleaning data."
+    )
+
+    return {
+        "fuzzy_columns_scanned": len(results),
+        "fuzzy_columns_with_issues": flagged,
+        "fuzzy_results": results,
+        "fuzzy_mappings": {
+            col: {src: dst for src, dst in mapping.items() if src != dst}
+            for col, mapping in mappings.items()
+            if any(src != dst for src, dst in mapping.items())
+        },
     }
 
 
@@ -302,20 +362,27 @@ def _print_task5_results(df, roles):
     }
 
 
-def _print_scoring_results(task2_summary, task3_summary, task4_summary, task5_summary):
+def _print_scoring_results(task2_summary, task3_summary, task4_summary, task5_summary, fuzzy_summary=None):
     """
     Task 6: composite Data Quality Score against the teacher's 8-dimension
     rubric, plus the separate Privacy Risk report. See scoring.py for why
     dimension_results is keyed explicitly by rubric name rather than by
     each check's own CheckResult.dimension field.
+
+    Fuzzy standardization CheckResults (plan.md Task 5) are merged into the
+    consistency dimension alongside case/whitespace consistency results.
     """
+    consistency_results = list(task5_summary["consistency_results"])
+    if fuzzy_summary and fuzzy_summary.get("fuzzy_results"):
+        consistency_results.extend(fuzzy_summary["fuzzy_results"])
+
     dimension_results = {
         "completeness": task2_summary["missing_results"],
         "type_reliability": task2_summary["type_results"],
         "uniqueness": [task2_summary["duplicate_result"]],
         "outlier_risk": task3_summary["outlier_results"],
         "schema_quality": task5_summary["schema_results"],
-        "consistency": task5_summary["consistency_results"],
+        "consistency": consistency_results,
         "validity": task5_summary["validity_results"],
         "freshness": task5_summary["freshness_results"],
     }
@@ -336,11 +403,13 @@ def _print_scoring_results(task2_summary, task3_summary, task4_summary, task5_su
         if score["dimensions_excluded"]:
             print(f"Dimensions excluded (no results supplied): {score['dimensions_excluded']}")
         print("-" * 70)
-        print(f"{'Dimension':20} {'Score':>8} {'Weight':>8} {'Available':>10}")
+        print(f"{'Dimension':20} {'Score':>8} {'Weight':>8} {'Assessed':>10} {'Skipped':>8}")
         print("-" * 70)
         for dim, info in score["dimension_scores"].items():
             s = info["score"] if info["score"] is not None else "-"
-            print(f"{dim:20} {str(s):>8} {info['weight']:>8.2f} {str(info['available']):>10}")
+            assessed = info.get("total", 0)
+            skipped = info.get("skipped", 0)
+            print(f"{dim:20} {str(s):>8} {info['weight']:>8.2f} {assessed:>10} {skipped:>8}")
 
     print("\n[11] Privacy Risk (separate -- never part of the score above)")
     print("-" * 70)
@@ -355,7 +424,14 @@ def _print_scoring_results(task2_summary, task3_summary, task4_summary, task5_su
     return score
 
 
-def run_task1_task2(filepath: str, sheet_name: str | None = None, prompt: UserPrompt | None = None):
+def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPrompt | None = None):
+    """
+    Full Phase 1 pipeline for one file (all sheets, or a single --sheet).
+
+    Order: header confirm → scope confirm → column classification →
+    missing/duplicates/types → outliers → PII → schema/consistency/
+    validity/freshness → composite score + privacy risk.
+    """
     prompt = prompt or CLIPrompt()
     run_id = uuid.uuid4().hex[:12]
     logger = get_logger(run_id)
@@ -379,18 +455,34 @@ def run_task1_task2(filepath: str, sheet_name: str | None = None, prompt: UserPr
 
         df = load_with_confirmed_header(raw_df, header_row)
 
-        # Task 2 checkpoint: scope confirm
+        # Scope checkpoint before heavy checks
         est = max(0.1, (len(df) * max(1, df.shape[1])) / 50000.0)
         scope = confirm_processing_scope(prompt, len(df), df.shape[1], est)
         df = apply_scope(df, scope)
 
         print(f"\nFinal shape after header+scope: {df.shape}")
-        classification = _print_classification_results(df)
-        task2_summary = _print_top_results(df)
-        task3_summary = _print_task3_results(df)
-        task4_summary = _print_task4_results(df)
-        task5_summary = _print_task5_results(df, classification)
-        score = _print_scoring_results(task2_summary, task3_summary, task4_summary, task5_summary)
+        try:
+            classification = _print_classification_results(df)
+            task2_summary = _print_top_results(df)
+            task3_summary = _print_task3_results(df)
+            task4_summary = _print_task4_results(df)
+            # plan.md Section 4.9 step (g): fuzzy standardization after PII
+            fuzzy_summary = _print_fuzzy_standardization_results(df, classification)
+            task5_summary = _print_task5_results(df, classification)
+            score = _print_scoring_results(
+                task2_summary, task3_summary, task4_summary, task5_summary, fuzzy_summary
+            )
+        except Exception as exc:  # noqa: BLE001 - never abort remaining sheets
+            log_event(
+                logger,
+                logging.ERROR,
+                "sheet_failed",
+                run_id=run_id,
+                step="pipeline",
+                details={"file": str(Path(filepath).name), "sheet": sname, "error": str(exc)},
+            )
+            print(f"\n[ERROR] Sheet '{sname}' failed: {exc}")
+            continue
 
         checks_run = [
             "column_classification",
@@ -399,6 +491,7 @@ def run_task1_task2(filepath: str, sheet_name: str | None = None, prompt: UserPr
             "type_mismatch",
             "outliers",
             "pii",
+            "fuzzy_standardization",
             "schema_quality",
             "consistency",
             "validity",
@@ -411,6 +504,7 @@ def run_task1_task2(filepath: str, sheet_name: str | None = None, prompt: UserPr
             + (task2_summary["type_mismatch_columns_scanned"] - task2_summary["type_mismatch_columns_with_issues"])
             + (task3_summary["outlier_columns_scanned"] - task3_summary["outlier_columns_with_issues"])
             + (task4_summary["pii_columns_scanned"] - task4_summary["pii_columns_with_hits"])
+            + (fuzzy_summary["fuzzy_columns_scanned"] - fuzzy_summary["fuzzy_columns_with_issues"])
             + (task5_summary["schema_columns_scanned"] - task5_summary["schema_columns_with_issues"])
             + (task5_summary["consistency_columns_scanned"] - task5_summary["consistency_columns_with_issues"])
             + (task5_summary["validity_checks_scanned"] - task5_summary["validity_checks_with_issues"])
@@ -422,6 +516,7 @@ def run_task1_task2(filepath: str, sheet_name: str | None = None, prompt: UserPr
             + task2_summary["type_mismatch_columns_with_issues"]
             + task3_summary["outlier_columns_with_issues"]
             + task4_summary["pii_columns_with_hits"]
+            + fuzzy_summary["fuzzy_columns_with_issues"]
             + task5_summary["schema_columns_with_issues"]
             + task5_summary["consistency_columns_with_issues"]
             + task5_summary["validity_checks_with_issues"]
@@ -446,18 +541,23 @@ def run_task1_task2(filepath: str, sheet_name: str | None = None, prompt: UserPr
                 "data_quality_score": score.get("data_quality_score"),
                 "scorable_weight_fraction": score.get("scorable_weight_fraction"),
                 "privacy_risk_level": (score.get("privacy_risk") or {}).get("risk_level"),
+                "fuzzy_columns_with_issues": fuzzy_summary["fuzzy_columns_with_issues"],
             },
         )
 
     print("\nDone: Task 1-6 completed.")
 
 
+# Backward-compatible alias (older scripts/tests may still call this name).
+run_task1_task2 = run_pipeline
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
             "Run the full Phase 1 pipeline: ingestion + header detection, "
-            "core profiling, outliers, PII, schema/consistency/validity/"
-            "freshness, and a composite Data Quality Score."
+            "core profiling, outliers, PII, RapidFuzz fuzzy standardization, "
+            "schema/consistency/validity/freshness, and a composite Data Quality Score."
         )
     )
     p.add_argument("filepath", help="Path to .xlsx/.xls/.csv file")
@@ -470,4 +570,4 @@ if __name__ == "__main__":
     path = Path(args.filepath)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
-    run_task1_task2(str(path), args.sheet)
+    run_pipeline(str(path), args.sheet)

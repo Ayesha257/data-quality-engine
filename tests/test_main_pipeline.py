@@ -34,7 +34,11 @@ def test_run_task1_task2_completes_all_four_tasks(capsys):
     assert "Task 2 Results" in out
     assert "Task 3 Results (Outlier Detection)" in out
     assert "Task 4 Results (PII Detection & Masking)" in out
-    assert "Done: Task 1-4 completed." in out
+    assert "Task 5 Results (Schema, Consistency, Validity, Freshness)" in out
+    assert "Task 6 Results (Data Quality Score)" in out
+    assert "Data Quality Score:" in out
+    assert "Privacy Risk (separate -- never part of the score above)" in out
+    assert "Done: Task 1-6 completed." in out
 
 
 def test_run_task1_task2_writes_jsonl_log(tmp_path, monkeypatch):
@@ -63,4 +67,11 @@ def test_run_task1_task2_writes_jsonl_log(tmp_path, monkeypatch):
         "type_mismatch",
         "outliers",
         "pii",
+        "schema_quality",
+        "consistency",
+        "validity",
+        "freshness",
+        "scoring",
     }
+    assert "data_quality_score" in line["details"]
+    assert "privacy_risk_level" in line["details"]

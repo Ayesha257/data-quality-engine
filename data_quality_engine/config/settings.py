@@ -59,6 +59,10 @@ SETTINGS = {
         "outlier_risk": 0.05,
         "freshness": 0.05,
     },
+    # Freshness: how many days since a date column's max value before it's
+    # considered stale. 90 is a generic default -- override per-file if a
+    # dataset has a known slower/faster update cadence.
+    "freshness_days": 90,
     # Easby: numeric fields where zeros are suspicious (completeness/validity)
     "suspicious_zero_columns": [
         "GBP Amt-tax",

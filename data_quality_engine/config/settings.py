@@ -3,7 +3,12 @@
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DATASET_DIR = REPO_ROOT / "OneDrive_1_26-01-2026 - latest data set"
+_DATASET_CANDIDATES = (
+    REPO_ROOT / "OneDrive_1_26-01-2026 - latest data set",
+    REPO_ROOT / "src" / "sample_data",
+    REPO_ROOT / "sample_data",
+)
+DATASET_DIR = next((p for p in _DATASET_CANDIDATES if p.exists()), _DATASET_CANDIDATES[0])
 
 SETTINGS = {
     # Ingestion
@@ -18,8 +23,15 @@ SETTINGS = {
     "outlier_knn_contamination": 0.05,
     # Encoding
     "encoding_confidence_threshold": 0.8,
-    # Fuzzy match
+    # Fuzzy match / standardization (plan.md Task 5, Section 4.4)
     "fuzzy_threshold": 90,
+    "fuzzy_max_unique": 500,
+    # Only these classifier roles are standardized by default (identifiers /
+    # PII / measurements / dates are excluded to avoid false merges).
+    "fuzzy_eligible_roles": ["categorical", "free_text"],
+    # Compare fuzz.ratio on casefolded strings so Paid/PAID cluster together;
+    # canonical form remains the most frequent original spelling.
+    "fuzzy_case_insensitive": True,
     # PII
     "pii_mask_mode": "partial",
     "pii_show_last_n": 4,

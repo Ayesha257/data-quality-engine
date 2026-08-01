@@ -1,44 +1,31 @@
 """Composite Data Quality Score -> teacher's 8-dimension rubric.
 
-This is a *skeleton*: it can score any subset of the 8 rubric dimensions
-today (the 4 that are fully reusable from existing checks -- completeness,
-type_reliability, uniqueness, outlier_risk -- plus the 2 built in this
-pass -- schema_quality, consistency) and will pick up "validity" and
-"freshness" automatically once those check modules exist, with zero
-changes needed here.
+Scores all 8 rubric dimensions when results are supplied:
+completeness, validity, type_reliability, consistency, uniqueness,
+schema_quality, outlier_risk, freshness. Privacy risk (Task 4 PII) is
+reported separately and never folded into the composite.
 
-Design choices, both deliberate and matching the teacher's brief exactly:
+Design choices (match the teacher's brief):
 
 1. Weights come from SETTINGS["rubric_dimension_weights"] (8 dimensions,
-   sums to 1.0), not from the older CheckResult.dimension values that
-   existing checks already use internally. Those two dimension sets don't
-   line up 1:1 -- e.g. type_mismatch.py and outliers.py both set
-   CheckResult.dimension = "validity" for historical/internal reasons, but
-   the rubric treats "type reliability" (dominant-type mismatches) and
-   "outlier risk" (IQR/KNN flags) as two separate weighted dimensions, and
-   reserves "validity" for a not-yet-built check (invalid numeric/date
-   *values*, not type mismatches). So callers pass results in explicitly
-   under the rubric dimension name they belong to -- this module does not
-   try to infer rubric dimension from CheckResult.dimension.
+   sum to 1.0), not from CheckResult.dimension on individual checks.
+   Those two sets do not line up 1:1 -- e.g. type_mismatch and outliers
+   both tag dimension="validity" internally, but the rubric splits them
+   into type_reliability and outlier_risk, and reserves "validity" for
+   value-rule checks (negatives, date order, suspicious zeros). Callers
+   pass results under the rubric key they belong to.
 
-2. If a rubric dimension has no results supplied (module not built yet, or
-   simply not run for a given sheet), it is excluded from the composite
-   score and its weight is *not* silently redistributed without saying so
-   -- the returned dict always lists which dimensions were excluded and
-   what fraction of total rubric weight was actually scorable, so a
-   partial score is never presented as if it were a full one.
+2. Missing dimensions are excluded transparently (listed in
+   dimensions_excluded); their weight is not silently redistributed
+   without reporting scorable_weight_fraction.
 
-3. Privacy Risk (from PII detection, Task 4) is reported as a fully
-   separate field and is never folded into the composite score -- this is
-   the explicit "Important design choice" from the rubric: a dataset can
-   be analytically high quality but still unsafe to share.
+3. Privacy Risk is a separate field -- a dataset can score high on
+   analytical quality and still be unsafe to share.
 
-Per-dimension sub-score formula (Phase 1, matches the simplicity of every
-other "Phase 1 Method" in the rubric table): for a dimension's list of
-CheckResults, score = 100 * (passed_count / total_non_error_count). This
-mirrors how the CLI report already summarizes every check today (e.g.
-"Columns with type issues: n / total") -- it's just that ratio turned into
-a 0-100 number and weighted.
+Per-dimension formula: score = 100 * (passed / assessed), where
+"assessed" excludes status="error" and role-skip results whose
+details["reason"] starts with "skipped_" (e.g. outlier checks on
+identifier columns). Skips must not inflate the score.
 """
 
 from __future__ import annotations
@@ -71,17 +58,32 @@ _DEFAULT_WEIGHTS = {
 }
 
 
+def _is_role_skip(result: CheckResult) -> bool:
+    """True when a check was intentionally not applicable (wrong column role)."""
+    reason = result.details.get("reason")
+    return isinstance(reason, str) and reason.startswith("skipped_")
+
+
 def _dimension_sub_score(results: list[CheckResult]) -> dict[str, Any]:
-    non_error = [r for r in results if r.status != "error"]
-    if not non_error:
-        return {"score": None, "passed": 0, "total": 0, "errored": len(results)}
-    passed = sum(1 for r in non_error if r.status == "passed")
-    total = len(non_error)
+    errored = sum(1 for r in results if r.status == "error")
+    skipped = sum(1 for r in results if r.status != "error" and _is_role_skip(r))
+    assessed = [r for r in results if r.status != "error" and not _is_role_skip(r)]
+    if not assessed:
+        return {
+            "score": None,
+            "passed": 0,
+            "total": 0,
+            "skipped": skipped,
+            "errored": errored,
+        }
+    passed = sum(1 for r in assessed if r.status == "passed")
+    total = len(assessed)
     return {
         "score": round(100.0 * passed / total, 2),
         "passed": passed,
         "total": total,
-        "errored": len(results) - len(non_error),
+        "skipped": skipped,
+        "errored": errored,
     }
 
 
@@ -178,6 +180,7 @@ def compute_data_quality_score(
                     "score": None,
                     "passed": 0,
                     "total": 0,
+                    "skipped": 0,
                     "errored": 0,
                     "weight": weight,
                     "available": False,

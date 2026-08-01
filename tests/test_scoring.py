@@ -103,3 +103,28 @@ def test_privacy_risk_level_none_when_no_pii_found():
         {"completeness": [_result("passed")]}, pii_summary_by_column=pii_summary
     )
     assert out["privacy_risk"]["risk_level"] == "none"
+
+
+def test_role_skips_do_not_inflate_dimension_score():
+    """Skipped non-applicable columns must not count as passed."""
+    skipped = CheckResult(
+        check_name="outliers",
+        status="passed",
+        column="InvoiceNo",
+        issues_found=0,
+        details={"reason": "skipped_non_measurement_column", "classified_role": "identifier"},
+        dimension="validity",
+    )
+    failed = CheckResult(
+        check_name="outliers",
+        status="failed",
+        column="Amount",
+        issues_found=3,
+        details={"method": "iqr"},
+        dimension="validity",
+    )
+    out = compute_data_quality_score({"outlier_risk": [skipped, skipped, failed]})
+    # Only the real assessment counts: 0 passed / 1 assessed = 0
+    assert out["dimension_scores"]["outlier_risk"]["score"] == 0.0
+    assert out["dimension_scores"]["outlier_risk"]["total"] == 1
+    assert out["dimension_scores"]["outlier_risk"]["skipped"] == 2

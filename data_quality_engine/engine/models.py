@@ -13,4 +13,4 @@ class CheckResult:
     column: str | None
     issues_found: int
     details: dict[str, Any] = field(default_factory=dict)
-    dimension: str = ""  # one of the 7 quality dimensions
+    dimension: str = ""  # internal check tag; rubric scoring uses explicit keys

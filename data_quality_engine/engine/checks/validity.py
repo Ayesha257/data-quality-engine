@@ -47,10 +47,11 @@ from data_quality_engine.config.settings import SETTINGS
 from data_quality_engine.engine.column_classifier import (
     ROLE_DATE,
     ROLE_MEASUREMENT,
+    ROLE_PII,
     classify_columns,
 )
 from data_quality_engine.engine.models import CheckResult
-from data_quality_engine.engine.pii.detect_pii import _EMAIL_RE
+from data_quality_engine.engine.pii.detect_pii import TYPE_EMAIL, _EMAIL_RE
 
 _NON_NEGATIVE_NAME_RE = re.compile(
     r"\b(qty|quantity|count|age|stock|units?|weight|hours?|days?)\b", re.I
@@ -151,8 +152,20 @@ def _check_date_column(series: pd.Series, col_name: str) -> CheckResult:
     )
 
 
-def _check_email_format(series: pd.Series, col_name: str) -> CheckResult | None:
-    if not _EMAIL_NAME_RE.search(col_name):
+def _check_email_format(
+    series: pd.Series,
+    col_name: str,
+    *,
+    force: bool = False,
+) -> CheckResult | None:
+    """
+    Validate email-shaped values.
+
+    Runs when the column name contains \"email\", or when ``force=True``
+    (caller already knows the column holds emails, e.g. PII summary with
+    EMAIL type_counts — \"Statements\", \"POs/Sales Quotes\", etc.).
+    """
+    if not force and not _EMAIL_NAME_RE.search(col_name):
         return None
     non_null = series.dropna()
     if non_null.empty:
@@ -161,6 +174,25 @@ def _check_email_format(series: pd.Series, col_name: str) -> CheckResult | None:
         idx for idx, v in non_null.items() if not _EMAIL_RE.search(str(v))
     ]
     return _result(col_name, invalid_idx, "invalid_email_format")
+
+
+def _column_has_email_pii(
+    col_name: str,
+    role: str | None,
+    pii_summary_by_column: dict[str, dict[str, Any]] | None,
+) -> bool:
+    """True when precomputed PII summary reports EMAIL hits for this column."""
+    if not pii_summary_by_column:
+        return False
+    if role is not None and role != ROLE_PII:
+        # Still allow email validation if the summary says EMAIL even when
+        # role wasn't pii (defensive); primary path is role=pii + EMAIL.
+        pass
+    summary = pii_summary_by_column.get(col_name)
+    if summary is None:
+        return False
+    type_counts = summary.get("type_counts") or {}
+    return bool(type_counts.get(TYPE_EMAIL, 0) > 0)
 
 
 def _check_cross_column_date_rules(
@@ -212,6 +244,7 @@ def check_validity_frame(
     df: pd.DataFrame,
     roles: dict[str, str] | None = None,
     cross_column_rules: list[dict[str, Any]] | None = None,
+    pii_summary_by_column: dict[str, dict[str, Any]] | None = None,
 ) -> list[CheckResult]:
     """
     Run all validity sub-checks across df. One CheckResult per applicable
@@ -219,6 +252,11 @@ def check_validity_frame(
     with no applicable validity rule still get a single "passed/skipped"
     CheckResult, matching the exhaustive per-column reporting style used
     by missing_values.py / type_mismatch.py.
+
+    pii_summary_by_column: optional column -> detect_pii_in_series() summary
+        already computed by the pipeline (Task 4). When present, columns
+        with EMAIL in type_counts also get email-format validation even if
+        the column name does not contain \"email\".
     """
     try:
         if df is None or not isinstance(df, pd.DataFrame):
@@ -256,13 +294,16 @@ def check_validity_frame(
             if role == ROLE_DATE:
                 applied.append(_check_date_column(series, col_name))
 
-            r = _check_email_format(series, col_name)
+            force_email = _column_has_email_pii(
+                col_name, role, pii_summary_by_column
+            )
+            r = _check_email_format(series, col_name, force=force_email)
             if r is not None:
                 applied.append(r)
 
             if not applied:
                 results.append(
-                    _passed_skip(col_name, "no_validity_rule_for_role", role=role)
+                    _passed_skip(col_name, "skipped_no_rule_for_role", role=role)
                 )
             else:
                 results.extend(applied)

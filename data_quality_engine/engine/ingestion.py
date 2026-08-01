@@ -35,13 +35,22 @@ _NUMERIC_LIKE_RE = re.compile(r"^-?\d+([.,]\d+)?$")
 
 
 def _sniff_csv_encoding(path: Path) -> str:
+    """
+    Detect CSV encoding via checks/encoding.check_encoding (chardet + optional
+    fallback recommendation). Samples the first 100_000 bytes — same limit as
+    before this module existed; chardet logic now lives in one place.
+    """
     sample = path.read_bytes()[:100_000]
     try:
-        import chardet
+        from data_quality_engine.engine.checks.encoding import check_encoding
 
-        guess = chardet.detect(sample) or {}
-        enc = guess.get("encoding") or "utf-8"
-        return enc
+        result = check_encoding(sample)
+        details = result.details or {}
+        enc = details.get("encoding")
+        # When chardet is unsure, prefer a fallback that actually decoded.
+        if details.get("low_confidence") and details.get("recommended_encoding"):
+            enc = details["recommended_encoding"]
+        return enc or "utf-8"
     except Exception:
         return "utf-8"
 

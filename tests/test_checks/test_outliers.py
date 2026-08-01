@@ -86,6 +86,36 @@ def test_iqr_large_spike():
     assert result.issues_found >= 1
 
 
+def test_iqr_dominant_value_adds_caveat_without_changing_counts():
+    """
+    Credit Limit-style column: one common value dominates (>30%).
+    Caveat fields appear; issues_found/status still follow plain IQR.
+    """
+    # 7x 300000 + a few other limits — dominant ratio = 7/10 = 0.7
+    s = pd.Series(
+        [300000, 300000, 300000, 300000, 300000, 300000, 300000, 5000, 10000, 15000],
+        name="Credit Limit",
+    )
+    result = detect_outliers(s, method="iqr")
+    assert "dominant_value" in result.details
+    assert result.details["dominant_value"] == 300000
+    assert result.details["dominant_value_ratio"] >= 0.3
+    assert "IQR bounds may be unreliable" in result.details["note"]
+
+    # Additive only: same status/count as IQR without suppressing anything
+    assert result.details["outlier_count"] == result.issues_found
+    assert result.status in {"passed", "failed"}
+    assert result.details["method"] == "iqr"
+
+
+def test_iqr_no_dominant_value_caveat_when_spread_out():
+    s = pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1000], name="Amount")
+    result = detect_outliers(s, method="iqr")
+    assert "dominant_value" not in result.details
+    assert "dominant_value_ratio" not in result.details
+
+
+
 def test_iqr_bad_input_returns_error():
     result = detect_outliers("nope")  # type: ignore[arg-type]
     assert result.status == "error"

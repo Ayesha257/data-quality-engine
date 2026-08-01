@@ -47,6 +47,44 @@ def _to_numeric_series(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
 
+def _dominant_value_caveat(valid: pd.Series) -> dict[str, Any]:
+    """
+    If one value dominates the non-null numeric column, return caveat fields
+    for CheckResult.details. Empty dict when concentration is below threshold.
+    Does not change outlier counts — advisory only.
+    """
+    if valid.empty:
+        return {}
+    threshold = float(SETTINGS.get("outlier_dominant_value_ratio", 0.3))
+    # mode() can return multiple; take the first most-frequent value
+    counts = valid.value_counts(dropna=True)
+    if counts.empty:
+        return {}
+    dominant_value = counts.index[0]
+    dominant_count = int(counts.iloc[0])
+    ratio = float(dominant_count) / float(len(valid))
+    if ratio <= threshold:
+        return {}
+    # Preserve int-looking floats as int for readable reports
+    display_value: Any = dominant_value
+    try:
+        as_float = float(dominant_value)
+        if abs(as_float - round(as_float)) < 1e-9:
+            display_value = int(round(as_float))
+        else:
+            display_value = as_float
+    except (TypeError, ValueError):
+        pass
+    return {
+        "dominant_value": display_value,
+        "dominant_value_ratio": round(ratio, 4),
+        "note": (
+            "high concentration on one value -- IQR bounds may be "
+            "unreliable for this distribution"
+        ),
+    }
+
+
 def _detect_iqr(series: pd.Series, col_name: str | None) -> CheckResult:
     """
     IQR outlier detection (Phase 1 default).
@@ -96,27 +134,31 @@ def _detect_iqr(series: pd.Series, col_name: str | None) -> CheckResult:
     issues = len(outlier_idx)
     outlier_pct = round((issues / numeric_count) * 100.0, 4) if numeric_count else 0.0
 
+    details: dict[str, Any] = {
+        "method": "iqr",
+        "q1": q1,
+        "q3": q3,
+        "iqr": iqr,
+        "lower_bound": lower,
+        "upper_bound": upper,
+        "outlier_count": issues,
+        "outlier_pct": outlier_pct,
+        "numeric_count": numeric_count,
+        "total_rows": total_rows,
+        "row_indices": outlier_idx[:100],
+        "sample_values": outlier_vals[:20],
+        "row_indices_truncated": issues > 100,
+        "constant_column": iqr == 0.0,
+    }
+    # Additive caveat only — does not change issues_found / status
+    details.update(_dominant_value_caveat(valid))
+
     return CheckResult(
         check_name="outliers",
         status="passed" if issues == 0 else "failed",
         column=col_name,
         issues_found=issues,
-        details={
-            "method": "iqr",
-            "q1": q1,
-            "q3": q3,
-            "iqr": iqr,
-            "lower_bound": lower,
-            "upper_bound": upper,
-            "outlier_count": issues,
-            "outlier_pct": outlier_pct,
-            "numeric_count": numeric_count,
-            "total_rows": total_rows,
-            "row_indices": outlier_idx[:100],
-            "sample_values": outlier_vals[:20],
-            "row_indices_truncated": issues > 100,
-            "constant_column": iqr == 0.0,
-        },
+        details=details,
         dimension="validity",
     )
 

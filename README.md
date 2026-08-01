@@ -3,7 +3,7 @@
 Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainable data-quality reports. Every decision is deterministic and logged — no AI black boxes.
 
 **Author:** Ayesha Amer  
-**Status:** Tasks 1–5 implemented
+**Status:** Phase 1 core checks + RapidFuzz standardization + CSV encoding detection/repair
 
 ---
 
@@ -12,11 +12,12 @@ Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainab
 | Step | What runs |
 |------|-----------|
 | **Task 1** | Header-row detection + human confirmation |
-| **Task 2** | Missing values, duplicates, type mismatches |
+| **Encoding Check** | CSV raw-byte encoding via chardet (+ ftfy repair helpers); skipped for Excel |
+| **Task 2** | Missing values, duplicates (full-row + business keys), type mismatches |
 | **Task 3** | Outlier detection (IQR default; optional KNN) with column-role awareness |
 | **Task 4** | PII detection + masking (privacy risk reported separately) |
-| **Task 5** | Fuzzy text standardization via RapidFuzz (`standardize_values`) |
-| **Dimensions** | Schema quality, case/whitespace consistency, validity, freshness |
+| **Fuzzy std.** | RapidFuzz text standardization (`standardize_values`) |
+| **Rubric dims** | Schema quality, case/whitespace consistency, validity, freshness |
 | **Scoring** | Weighted 8-dimension Data Quality Score (+ separate privacy risk) |
 
 Column classification runs after header confirmation so measurement checks (outliers, freshness, etc.) never treat invoice numbers or phone fields as statistics. Fuzzy standardization runs after PII and only on configured text roles (`categorical`, `free_text` by default).
@@ -57,7 +58,7 @@ Formats: `.xlsx`/`.xlsm` (openpyxl, calamine fallback), `.xls` (xlrd), `.csv`.
 
 ---
 
-## Fuzzy standardization 
+## Fuzzy standardization (plan.md Task 5)
 
 ```python
 from data_quality_engine.engine.standardization import (
@@ -107,8 +108,9 @@ plan.md            # Phase 1 technical plan
 | `notebooks/02_task2_core_profiling.ipynb` | Missing / types / duplicates |
 | `notebooks/03_task3_outlier_detection.ipynb` | IQR + optional KNN |
 | `notebooks/04_task4_pii_detection_masking.ipynb` | PII detect/mask (imports package) |
-| `notebooks/05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization (Task 5) |
-| `notebooks/schema_consistency_validity_freshness_scoring.ipynb` | Dimensions + composite score |
+| `notebooks/05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization |
+| `notebooks/06_encoding_detection_repair.ipynb` | Encoding detection & mojibake repair (CSV) |
+| `notebooks/schema_consistency_validity_freshness_scoring.ipynb` | Rubric dims + composite score |
 
 See `notebooks/README.md`. Source of truth for demos: package code under `data_quality_engine/`.
 
@@ -128,4 +130,5 @@ python -m pytest tests -q
 - PII samples printed by the CLI are already masked; privacy risk is **not** subtracted from the quality score.
 - Role-skipped columns (e.g. outliers on identifiers) are excluded from dimension pass-ratios so scores are not artificially inflated.
 - Fuzzy standardization feeds the consistency dimension alongside case/whitespace consistency; the CLI reports mappings without rewriting the working frame until you call `apply_standardization`.
-- Phase 1 intentionally omits PDF reporting and encoding repair wiring — those remain in `plan.md` for later build-order items.
+- CSV **Encoding Check** uses chardet (with optional low-confidence fallbacks) and is skipped for Excel; `ingestion._sniff_csv_encoding` delegates to `check_encoding`.
+- Phase 1 intentionally omits PDF reporting wiring — that remains in `plan.md` for later build-order items.

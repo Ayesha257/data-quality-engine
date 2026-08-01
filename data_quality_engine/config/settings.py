@@ -21,8 +21,13 @@ SETTINGS = {
     "outlier_default_method": "iqr",
     "outlier_knn_neighbors": 5,
     "outlier_knn_contamination": 0.05,
-    # Encoding
+    # When one value is this share (or more) of non-null numeric rows, IQR
+    # details get a caveat — count/status unchanged (Credit Limit-style cols).
+    "outlier_dominant_value_ratio": 0.3,
+    # Encoding (CSV bytes only — plan.md Section 10 item 6 / Section 4.3)
     "encoding_confidence_threshold": 0.8,
+    "encoding_sample_size": 100_000,
+    "encoding_fallback_list": ["utf-8-sig", "cp1252", "latin-1"],
     # Fuzzy match / standardization (plan.md Task 5, Section 4.4)
     "fuzzy_threshold": 90,
     "fuzzy_max_unique": 500,
@@ -71,10 +76,12 @@ SETTINGS = {
         "outlier_risk": 0.05,
         "freshness": 0.05,
     },
-    # Freshness: how many days since a date column's max value before it's
-    # considered stale. 90 is a generic default -- override per-file if a
-    # dataset has a known slower/faster update cadence.
-    "freshness_days": 90,
+    # Duplicates / uniqueness (Task 2)
+    # When set, these columns are always checked for duplicate keys in addition
+    # to full-row duplicates. When null/omitted, keys are inferred from names
+    # like "Customer No.", "Supplier Code", "Invoice No", etc.
+    "duplicate_key_columns": None,
+    "duplicate_normalize_strings": True,
     # Easby: numeric fields where zeros are suspicious (completeness/validity)
     "suspicious_zero_columns": [
         "GBP Amt-tax",

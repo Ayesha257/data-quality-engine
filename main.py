@@ -18,14 +18,16 @@ from data_quality_engine.engine.ingestion import (
     load_with_confirmed_header,
 )
 from data_quality_engine.engine.checks.missing_values import check_missing_values
-from data_quality_engine.engine.checks.duplicates import check_duplicates
+from data_quality_engine.engine.checks.duplicates import check_duplicates_frame
 from data_quality_engine.engine.checks.type_mismatch import check_type_consistency_frame
 from data_quality_engine.engine.checks.outliers import detect_outliers_frame
 from data_quality_engine.engine.checks.schema_quality import check_schema_quality
 from data_quality_engine.engine.checks.consistency import check_consistency_frame
 from data_quality_engine.engine.checks.validity import check_validity_frame
 from data_quality_engine.engine.checks.freshness import check_freshness_frame
+from data_quality_engine.engine.checks.encoding import check_encoding
 from data_quality_engine.engine.column_classifier import classify_columns
+from data_quality_engine.config.settings import SETTINGS
 from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
 from data_quality_engine.engine.standardization.fuzzy_match import (
     check_fuzzy_standardization_frame,
@@ -34,6 +36,39 @@ from data_quality_engine.engine.standardization.fuzzy_match import (
 from data_quality_engine.engine.scoring import compute_data_quality_score
 from data_quality_engine.engine.logging_utils import get_logger, log_event
 import logging
+
+def _print_encoding_check(filepath: str):
+    """
+    Encoding detection on CSV raw bytes only (plan.md Section 10 item 6).
+
+    Not labeled as a numbered Task — avoids colliding with rubric Task 5/6.
+    Excel paths are skipped explicitly (already decoded by openpyxl/xlrd).
+    """
+    print("\n=== Encoding Check (CSV bytes) ===")
+    path = Path(filepath)
+    if path.suffix.lower() != ".csv":
+        print(
+            "Skipped: not a CSV file. Excel workbooks are already decoded by "
+            "openpyxl/xlrd/calamine — there are no raw text-encoding bytes to sniff."
+        )
+        return {"encoding_result": None, "skipped": True}
+
+    sample_size = int(SETTINGS.get("encoding_sample_size", 100_000))
+    sample = path.read_bytes()[:sample_size]
+    result = check_encoding(sample)
+    print(f"Status     : {result.status}")
+    print(f"Encoding   : {result.details.get('encoding')}")
+    print(f"Confidence : {result.details.get('confidence')}")
+    print(f"Threshold  : {result.details.get('confidence_threshold')}")
+    print(f"Sample len : {result.details.get('sample_length')} / file bytes read for sniff")
+    if result.details.get("low_confidence"):
+        print(f"Flag       : {result.details.get('flag')}")
+        print(f"Recommended: {result.details.get('recommended_encoding')}")
+        print(f"Fallback   : {result.details.get('fallback_tried')}")
+    if result.status == "error":
+        print(f"Error      : {result.details.get('error')}")
+    return {"encoding_result": result, "skipped": False}
+
 
 def _print_classification_results(df):
     """
@@ -70,6 +105,49 @@ def _print_classification_results(df):
     return roles
 
 
+def _business_key_columns(df) -> list[str] | None:
+    """
+    Pick compound uniqueness key when an ID + site/address distinguisher exist.
+
+    Customer List-style ERP sheets repeat Customer No. across real distinct
+    sites (Add. Code). Using ID alone false-flags those as duplicates; ID +
+    site code is the business key. Returns None to let check_duplicates_frame
+    fall back to infer_uniqueness_keys().
+    """
+    lower_map = {str(c).strip().lower(): c for c in df.columns}
+
+    id_col = None
+    for name, col in lower_map.items():
+        if (
+            "customer no" in name
+            or "supplier code" in name
+            or "supplier no" in name
+            or name in {"customer no.", "customer no"}
+        ):
+            id_col = col
+            break
+    if id_col is None:
+        return None
+
+    site_keys = {
+        "add. code",
+        "add code",
+        "site",
+        "site code",
+        "location code",
+        "warehouse",
+    }
+    site_col = None
+    for name, col in lower_map.items():
+        if name in site_keys or name.endswith("add. code"):
+            site_col = col
+            break
+
+    if site_col is not None:
+        return [id_col, site_col]
+    return [id_col]
+
+
 def _print_top_results(df):
     print("\n=== Task 2 Results (Detailed) ===")
     print(f"Rows: {len(df)} | Columns: {df.shape[1]}")
@@ -89,18 +167,71 @@ def _print_top_results(df):
     print(f"TOTAL missing cells: {total_missing}")
     print(f"Columns with missing: {sum(1 for r in missing if r.issues_found > 0)} / {len(missing)}")
 
-    # ---- Duplicates ----
-    dup = check_duplicates(df)[0]
+    # ---- Duplicates (full-row + business-key uniqueness) ----
+    business_key = _business_key_columns(df)
+    dup_results = check_duplicates_frame(df, key_columns=business_key)
+    full_row_dup = next(
+        (r for r in dup_results if r.check_name == "duplicates"),
+        dup_results[0],
+    )
+    key_dups = [r for r in dup_results if r.check_name == "duplicate_keys"]
+
     print("\n[2] Duplicates  (Uniqueness)")
     print("-" * 70)
-    print(f"Status          : {dup.status}")
-    print(f"Duplicate rows  : {dup.issues_found}")
-    print(f"Total rows      : {dup.details.get('total_rows')}")
-    sample_idx = dup.details.get("row_indices", [])
-    if sample_idx:
-        print(f"Sample row idx  : {sample_idx[:20]}")
+    if business_key:
+        print(f"Business key used   : {business_key}")
     else:
-        print("Sample row idx  : none (no full-row duplicates)")
+        print("Business key used   : (auto-inferred single-column keys)")
+    print("Full-row exact duplicates")
+    print(f"  Status              : {full_row_dup.status}")
+    print(f"  Extra duplicate rows: {full_row_dup.issues_found}  (keep='first')")
+    print(
+        f"  Rows in dup sets    : {full_row_dup.details.get('duplicate_set_rows', full_row_dup.issues_found)}"
+    )
+    print(f"  Total rows          : {full_row_dup.details.get('total_rows')}")
+    sample_idx = full_row_dup.details.get("row_indices", [])
+    set_idx = full_row_dup.details.get("duplicate_set_indices", sample_idx)
+    if sample_idx:
+        print(f"  Extra row idx       : {sample_idx[:30]}")
+        print(f"  All rows in sets    : {set_idx[:30]}")
+        for g in (full_row_dup.details.get("duplicate_groups") or [])[:5]:
+            print(
+                f"  group size={g.get('count')} rows={g.get('row_indices')} "
+                f"preview={g.get('key_preview')}"
+            )
+    else:
+        print("  Extra row idx       : none (no full-row duplicates)")
+    print(
+        "  Note: indices are 0-based in the loaded dataframe "
+        "(after header), not Excel sheet row numbers."
+    )
+
+    if key_dups:
+        print("\nBusiness-key duplicates (same ID, rows may otherwise differ)")
+        for r in key_dups:
+            print(f"  Key column          : {r.column}")
+            print(f"  Status              : {r.status}")
+            print(f"  Extra key dups      : {r.issues_found}")
+            print(
+                f"  Rows sharing a key  : {r.details.get('duplicate_set_rows', r.issues_found)}"
+            )
+            print(
+                f"  Distinct keys reused: {r.details.get('unique_keys_repeated', 0)}"
+            )
+            sample_idx = r.details.get("row_indices", [])
+            if sample_idx:
+                print(f"  Sample extra idx    : {sample_idx[:30]}")
+            for g in (r.details.get("duplicate_groups") or [])[:8]:
+                print(
+                    f"  key={g.get('key')!r} count={g.get('count')} "
+                    f"rows={g.get('row_indices')}"
+                )
+    else:
+        print("\nBusiness-key duplicates: no ID-like columns inferred")
+
+    # Aggregate for pass/fail summary: any uniqueness failure counts
+    dup_issues_total = sum(r.issues_found for r in dup_results if r.status != "error")
+    dup_failed = any(r.status == "failed" for r in dup_results)
 
     # ---- Type mismatch ----
     type_results = check_type_consistency_frame(df)
@@ -122,20 +253,25 @@ def _print_top_results(df):
 
     print("\n=== Summary ===")
     print(f"Missing-values check: {len(missing)} columns scanned")
-    print(f"Duplicates check    : {dup.status} ({dup.issues_found} duplicate rows)")
+    print(
+        f"Duplicates check    : "
+        f"{'failed' if dup_failed else full_row_dup.status} "
+        f"({dup_issues_total} duplicate issues across full-row + keys)"
+    )
     print(f"Type-mismatch check : {len(type_results)} columns scanned, {bad_cols} with issues")
 
     return {
         "missing_columns_scanned": len(missing),
         "missing_columns_with_issues": sum(1 for r in missing if r.issues_found > 0),
-        "duplicate_rows": dup.issues_found,
+        "duplicate_rows": dup_issues_total,
         "type_mismatch_columns_scanned": len(type_results),
         "type_mismatch_columns_with_issues": bad_cols,
         # Raw CheckResults, kept alongside the summary counts above so
         # scoring.py can consume them directly -- see compute_data_quality_score
         # call in run_pipeline(). Not printed, not part of the JSONL log.
         "missing_results": missing,
-        "duplicate_result": dup,
+        "duplicate_result": full_row_dup,
+        "duplicate_results": dup_results,
         "type_results": type_results,
     }
 
@@ -163,6 +299,12 @@ def _print_task3_results(df):
         sample = r.details.get("sample_values", [])
         if sample:
             print(f"  sample outlier values: {sample[:5]}")
+        if "note" in r.details and "dominant_value" in r.details:
+            print(
+                f"  note: {r.details['note']} "
+                f"(dominant_value={r.details['dominant_value']}, "
+                f"dominant_value_ratio={r.details['dominant_value_ratio']})"
+            )
     print("-" * 70)
     print(f"Columns with outliers   : {flagged_cols} / {len(results)}")
     print(f"Columns skipped (non-measurement): {skipped_cols} / {len(results)}")
@@ -274,12 +416,14 @@ def _print_fuzzy_standardization_results(df, roles):
     }
 
 
-def _print_task5_results(df, roles):
+def _print_task5_results(df, roles, pii_summary_by_column=None):
     """
     Task 5: the 4 rubric dimensions not covered by Task 1-4 --
     Schema Quality, Consistency, Validity, Freshness. Printed in the same
     report style as Task 2/3. roles comes from _print_classification_results
     (computed once per sheet, reused here rather than reclassifying).
+    pii_summary_by_column: Task 4 output, reused so email-format validity
+    covers PII EMAIL columns whose names do not contain \"email\".
     """
     print("\n=== Task 5 Results (Schema, Consistency, Validity, Freshness) ===")
 
@@ -316,7 +460,9 @@ def _print_task5_results(df, roles):
     print(f"Columns with consistency issues: {consistency_bad} / {len(consistency_results)}")
 
     # ---- Validity ----
-    validity_results = check_validity_frame(df, roles=roles)
+    validity_results = check_validity_frame(
+        df, roles=roles, pii_summary_by_column=pii_summary_by_column
+    )
     print("\n[8] Validity")
     print("-" * 70)
     print(f"{'Column':40} {'Issues':>10} {'Rule':>28} {'Status':>10}")
@@ -362,24 +508,34 @@ def _print_task5_results(df, roles):
     }
 
 
-def _print_scoring_results(task2_summary, task3_summary, task4_summary, task5_summary, fuzzy_summary=None):
+def _print_scoring_results(
+    task2_summary,
+    task3_summary,
+    task4_summary,
+    task5_summary,
+    fuzzy_summary=None,
+    encoding_summary=None,
+):
     """
     Task 6: composite Data Quality Score against the teacher's 8-dimension
     rubric, plus the separate Privacy Risk report. See scoring.py for why
     dimension_results is keyed explicitly by rubric name rather than by
     each check's own CheckResult.dimension field.
 
-    Fuzzy standardization CheckResults (plan.md Task 5) are merged into the
+    Fuzzy standardization and CSV encoding CheckResults are merged into the
     consistency dimension alongside case/whitespace consistency results.
     """
     consistency_results = list(task5_summary["consistency_results"])
     if fuzzy_summary and fuzzy_summary.get("fuzzy_results"):
         consistency_results.extend(fuzzy_summary["fuzzy_results"])
+    if encoding_summary and encoding_summary.get("encoding_result") is not None:
+        consistency_results.append(encoding_summary["encoding_result"])
 
     dimension_results = {
         "completeness": task2_summary["missing_results"],
         "type_reliability": task2_summary["type_results"],
-        "uniqueness": [task2_summary["duplicate_result"]],
+        "uniqueness": task2_summary.get("duplicate_results")
+        or [task2_summary["duplicate_result"]],
         "outlier_risk": task3_summary["outlier_results"],
         "schema_quality": task5_summary["schema_results"],
         "consistency": consistency_results,
@@ -462,15 +618,23 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
 
         print(f"\nFinal shape after header+scope: {df.shape}")
         try:
+            encoding_summary = _print_encoding_check(filepath)
             classification = _print_classification_results(df)
             task2_summary = _print_top_results(df)
             task3_summary = _print_task3_results(df)
             task4_summary = _print_task4_results(df)
             # plan.md Section 4.9 step (g): fuzzy standardization after PII
             fuzzy_summary = _print_fuzzy_standardization_results(df, classification)
-            task5_summary = _print_task5_results(df, classification)
+            task5_summary = _print_task5_results(
+                df, classification, task4_summary.get("pii_summary_by_column")
+            )
             score = _print_scoring_results(
-                task2_summary, task3_summary, task4_summary, task5_summary, fuzzy_summary
+                task2_summary,
+                task3_summary,
+                task4_summary,
+                task5_summary,
+                fuzzy_summary,
+                encoding_summary,
             )
         except Exception as exc:  # noqa: BLE001 - never abort remaining sheets
             log_event(
@@ -485,6 +649,7 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
             continue
 
         checks_run = [
+            "encoding",
             "column_classification",
             "missing_values",
             "duplicates",
@@ -542,6 +707,12 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
                 "scorable_weight_fraction": score.get("scorable_weight_fraction"),
                 "privacy_risk_level": (score.get("privacy_risk") or {}).get("risk_level"),
                 "fuzzy_columns_with_issues": fuzzy_summary["fuzzy_columns_with_issues"],
+                "encoding_skipped": bool((encoding_summary or {}).get("skipped")),
+                "encoding_status": (
+                    None
+                    if not encoding_summary or encoding_summary.get("encoding_result") is None
+                    else encoding_summary["encoding_result"].status
+                ),
             },
         )
 

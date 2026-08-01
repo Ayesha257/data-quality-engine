@@ -3,7 +3,7 @@
 Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainable data-quality reports. Every decision is deterministic and logged — no AI black boxes.
 
 **Author:** Ayesha Amer  
-**Status:** Phase 1 core checks + RapidFuzz standardization + CSV encoding detection/repair
+**Status:** Tasks 1–5 implemented
 
 ---
 
@@ -16,8 +16,8 @@ Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainab
 | **Task 2** | Missing values, duplicates (full-row + business keys), type mismatches |
 | **Task 3** | Outlier detection (IQR default; optional KNN) with column-role awareness |
 | **Task 4** | PII detection + masking (privacy risk reported separately) |
-| **Fuzzy std.** | RapidFuzz text standardization (`standardize_values`) |
-| **Rubric dims** | Schema quality, case/whitespace consistency, validity, freshness |
+| **Task 5** | Fuzzy text standardization via RapidFuzz (`standardize_values`) |
+| **Dimensions** | Schema quality, case/whitespace consistency, validity, freshness |
 | **Scoring** | Weighted 8-dimension Data Quality Score (+ separate privacy risk) |
 
 Column classification runs after header confirmation so measurement checks (outliers, freshness, etc.) never treat invoice numbers or phone fields as statistics. Fuzzy standardization runs after PII and only on configured text roles (`categorical`, `free_text` by default).
@@ -58,7 +58,7 @@ Formats: `.xlsx`/`.xlsm` (openpyxl, calamine fallback), `.xls` (xlrd), `.csv`.
 
 ---
 
-## Fuzzy standardization (plan.md Task 5)
+## Fuzzy standardization 
 
 ```python
 from data_quality_engine.engine.standardization import (
@@ -108,9 +108,8 @@ plan.md            # Phase 1 technical plan
 | `notebooks/02_task2_core_profiling.ipynb` | Missing / types / duplicates |
 | `notebooks/03_task3_outlier_detection.ipynb` | IQR + optional KNN |
 | `notebooks/04_task4_pii_detection_masking.ipynb` | PII detect/mask (imports package) |
-| `notebooks/05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization |
-| `notebooks/06_encoding_detection_repair.ipynb` | Encoding detection & mojibake repair (CSV) |
-| `notebooks/schema_consistency_validity_freshness_scoring.ipynb` | Rubric dims + composite score |
+| `notebooks/05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization (Task 5) |
+| `notebooks/schema_consistency_validity_freshness_scoring.ipynb` | Dimensions + composite score |
 
 See `notebooks/README.md`. Source of truth for demos: package code under `data_quality_engine/`.
 

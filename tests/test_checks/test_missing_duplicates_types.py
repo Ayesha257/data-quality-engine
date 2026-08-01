@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.duplicates import check_duplicates
+from data_quality_engine.engine.checks.duplicates import (
+    check_duplicates,
+    check_duplicates_frame,
+    infer_uniqueness_keys,
+)
 from data_quality_engine.engine.checks.missing_values import check_missing_values
 from data_quality_engine.engine.checks.type_mismatch import (
     check_type_consistency,
@@ -68,6 +72,101 @@ def test_duplicates_bad_subset_returns_error():
     df = pd.DataFrame({"A": [1]})
     results = check_duplicates(df, subset=["missing"])
     assert results[0].status == "error"
+
+
+def test_duplicates_frame_reports_full_row_and_customer_key():
+    df = pd.DataFrame(
+        {
+            "Customer No.": ["C1", "C1", "C2", "C2"],
+            "Add. Code": ["HO", "WHS", "HO", "HO"],
+            "City": ["LHR", "KHI", "LHR", "LHR"],
+        }
+    )
+    # Row 2 and 3 are full-row duplicates; C1 and C2 are key duplicates
+    results = check_duplicates_frame(df)
+    by_name = {}
+    for r in results:
+        by_name.setdefault(r.check_name, []).append(r)
+
+    full = by_name["duplicates"][0]
+    assert full.issues_found == 1
+    assert full.details["duplicate_set_rows"] == 2
+
+    key = by_name["duplicate_keys"][0]
+    assert key.column == "Customer No."
+    assert key.issues_found == 2  # second C1 and second C2
+    assert key.details["duplicate_set_rows"] == 4
+    assert key.details["unique_keys_repeated"] >= 1
+
+
+def test_compound_business_key_not_flagged_when_add_code_differs():
+    """Same Customer No. + distinct Add. Code is NOT a compound-key duplicate."""
+    df = pd.DataFrame(
+        {
+            "Customer No.": ["C00001", "C00001", "C00001"],
+            "Add. Code": ["HO", "CIRCA", "JOHNS"],
+            "City": ["LONDON", "MANCHESTER", "LEEDS"],
+        }
+    )
+    # Explicit single-key behaviour still flags extras
+    single = check_duplicates(df, subset=["Customer No."])[0]
+    assert single.status == "failed"
+    assert single.issues_found == 2
+
+    # Compound key: each (Customer No., Add. Code) pair is unique
+    compound = check_duplicates(df, subset=["Customer No.", "Add. Code"])[0]
+    assert compound.status == "passed"
+    assert compound.issues_found == 0
+    assert compound.details["subset"] == ["Customer No.", "Add. Code"]
+
+    frame = check_duplicates_frame(
+        df, key_columns=["Customer No.", "Add. Code"]
+    )
+    key_results = [r for r in frame if r.check_name == "duplicate_keys"]
+    assert len(key_results) == 1
+    assert key_results[0].issues_found == 0
+    assert key_results[0].column == "Customer No.,Add. Code"
+
+
+def test_compound_key_still_flags_true_duplicates():
+    df = pd.DataFrame(
+        {
+            "Customer No.": ["C1", "C1", "C1"],
+            "Add. Code": ["HO", "HO", "WHS"],
+            "City": ["A", "A", "B"],
+        }
+    )
+    result = check_duplicates(df, subset=["Customer No.", "Add. Code"])[0]
+    assert result.status == "failed"
+    assert result.issues_found == 1
+
+
+
+def test_duplicates_normalize_strips_whitespace():
+    df = pd.DataFrame(
+        {
+            "Customer No.": ["A1", "A1"],
+            "City": ["LHR", " LHR "],
+        }
+    )
+    # Without normalize these differ; with normalize they match full-row
+    results = check_duplicates(df, normalize=True)
+    assert results[0].issues_found == 1
+
+
+def test_infer_uniqueness_keys_finds_customer_no():
+    df = pd.DataFrame(
+        {
+            "Customer No.": ["C1"],
+            "Add. Code": ["HO"],
+            "City": ["LHR"],
+        }
+    )
+    keys = infer_uniqueness_keys(df)
+    assert "Customer No." in keys
+    assert "Add. Code" not in keys
+    assert "City" not in keys
+
 
 
 def test_type_mismatch_mixed_column():

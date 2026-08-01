@@ -67,6 +67,62 @@ def test_date_column_classified_correctly():
     assert roles["order_date"] == ROLE_DATE
 
 
+def test_fax_numeric_phones_classify_as_pii_not_measurement():
+    """BUG fix: Fax / Toll Free with numeric-looking phones must not get IQR."""
+    df = pd.DataFrame(
+        {
+            "Fax": [14123456789, 441612345678, 0, 1616545969],
+            "Toll Free": [8001234567, 8009876543, 8001112222, 8003334444],
+            "Amount": [10.5, 12.0, 9.8, 200.0],
+        }
+    )
+    roles = classify_columns(df)
+    assert roles["Fax"] == ROLE_PII
+    assert roles["Toll Free"] == ROLE_PII
+    assert roles["Amount"] == ROLE_MEASUREMENT
+
+
+def test_other_column_phone_integers_classify_as_pii():
+    """Generic name 'Other' with UK-phone-shaped integers -> pii, not measurement."""
+    df = pd.DataFrame(
+        {
+            "Other": [
+                1488680200,
+                1616545969,
+                1217736672,
+                4411488680200,
+                8001234567,
+            ],
+        }
+    )
+    assert classify_columns(df)["Other"] == ROLE_PII
+
+
+def test_other_column_currency_values_still_measurement():
+    """Generic name 'Other' with small currency-like values must stay measurement."""
+    df = pd.DataFrame({"Other": [12.50, 8.00, 3.25, 100.00, 0.99]})
+    assert classify_columns(df)["Other"] == ROLE_MEASUREMENT
+
+
+
+def test_dirty_date_named_column_still_classified_as_date():
+    """Name hint + mostly-parseable values should win over identifier fallback."""
+    df = pd.DataFrame(
+        {
+            "Date": [
+                "2024-01-01",
+                "01/02/2024",
+                "2024-13-45",  # invalid
+                "2024-01-04",
+                "2024-01-05",
+                "2024-01-06",
+                "unknown",
+            ]
+        }
+    )
+    assert classify_columns(df)["Date"] == ROLE_DATE
+
+
 def test_free_text_column_classified_correctly():
     roles = classify_columns(_erp_like_frame())
     assert roles["notes"] == ROLE_FREE_TEXT

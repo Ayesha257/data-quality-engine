@@ -32,6 +32,8 @@ def test_run_pipeline_completes_all_tasks(capsys):
     main.run_pipeline(str(SAMPLE), prompt=AutoConfirmPrompt())
 
     out = capsys.readouterr().out
+    assert "Encoding Check (CSV bytes)" in out
+    assert "Skipped: not a CSV file" in out
     assert "Task 2 Results" in out
     assert "Task 3 Results (Outlier Detection)" in out
     assert "Task 4 Results (PII Detection & Masking)" in out
@@ -62,6 +64,7 @@ def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
     assert line["details"]["file"] == "sample_data.xlsx"
     assert "checks_run" in line["details"]
     assert set(line["details"]["checks_run"]) == {
+        "encoding",
         "column_classification",
         "missing_values",
         "duplicates",

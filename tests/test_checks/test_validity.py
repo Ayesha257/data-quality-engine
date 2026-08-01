@@ -9,6 +9,7 @@ from data_quality_engine.engine.column_classifier import (
     ROLE_CATEGORICAL,
     ROLE_DATE,
     ROLE_MEASUREMENT,
+    ROLE_PII,
 )
 
 
@@ -81,12 +82,43 @@ def test_flags_invalid_email_format():
     )
 
 
+def test_email_format_via_pii_summary_without_email_in_column_name():
+    """BUG fix: Statements / POs columns hold emails but aren't named 'email'."""
+    df = pd.DataFrame(
+        {
+            "Statements": ["ok@example.com", "not-an-email", "b@c.org"],
+            "Notes": ["hello", "world", "text"],
+        }
+    )
+    pii_summary = {
+        "Statements": {
+            "rows_with_pii": 2,
+            "type_counts": {"EMAIL": 2},
+        },
+        "Notes": {"rows_with_pii": 0, "type_counts": {}},
+    }
+    results = check_validity_frame(
+        df,
+        roles={"Statements": ROLE_PII, "Notes": ROLE_CATEGORICAL},
+        pii_summary_by_column=pii_summary,
+    )
+    statements = _find(results, "Statements")
+    assert any(
+        r.status == "failed" and r.details.get("rule") == "invalid_email_format"
+        for r in statements
+    )
+    # Name fallback still required when no PII summary: Notes not checked
+    notes = _find(results, "Notes")
+    assert all(r.details.get("rule") != "invalid_email_format" for r in notes)
+
+
+
 def test_column_with_no_applicable_rule_is_skipped():
     df = pd.DataFrame({"Notes": ["some free text", "more text"]})
     results = check_validity_frame(df, roles={"Notes": ROLE_CATEGORICAL})
     matches = _find(results, "Notes")
     assert len(matches) == 1
-    assert matches[0].details["reason"] == "no_validity_rule_for_role"
+    assert matches[0].details["reason"] == "skipped_no_rule_for_role"
 
 
 def test_cross_column_date_rule_flags_violation():

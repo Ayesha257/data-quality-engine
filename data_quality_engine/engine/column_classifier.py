@@ -51,6 +51,20 @@ _IDENTIFIER_NAME_RE = re.compile(
     re.I,
 )
 
+# Phone / contact name hints (same family as Telephones Landline / Mobile).
+# Extended with fax / toll free / landline so numeric-looking phone columns
+# classify as pii before the measurement fallback runs IQR on them.
+_PHONE_CONTACT_NAME_KEYWORDS = (
+    "fax",
+    "tel",
+    "phone",
+    "mobile",
+    "toll free",
+    "tollfree",
+    "landline",
+    "cell",
+)
+
 # Cap on rows sampled for PII confirmation / date parsing -- classification
 # should stay fast even on large ERP sheets (Product Data ~75k rows).
 _SAMPLE_SIZE = 200
@@ -83,21 +97,75 @@ def _looks_like_code(value: object) -> bool:
     return True
 
 
-def _is_pii_column(series: pd.Series, col_name: str | None) -> bool:
-    """Reuse existing PII detection: name hints + a value-level check."""
-    hints = _infer_expected_types(col_name)
-    if not hints:
+def _has_phone_contact_name_hint(col_name: str | None) -> bool:
+    """True when the column name looks like a phone/contact field."""
+    if not col_name:
         return False
+    name = str(col_name).strip().lower().replace("_", " ")
+    return any(k in name for k in _PHONE_CONTACT_NAME_KEYWORDS)
+
+
+def _looks_like_phone_number_values(series: pd.Series) -> bool:
+    """
+    Value-based phone fallback for columns whose *name* has no phone keyword
+    (e.g. merged-header \"Other\" under Telephones).
+
+    True when >80% of numeric non-null sample values are whole integers with
+    9+ digits and no meaningful fractional part (not currency-shaped).
+    """
     non_null = series.dropna()
     if non_null.empty:
         return False
-    sample = non_null.astype(str).head(_SAMPLE_SIZE)
-    sample_series = pd.Series(sample.to_numpy(), name=col_name)
-    summary = detect_pii_in_series(sample_series)
-    return bool(summary.get("rows_with_pii", 0) > 0)
+
+    sample = non_null.head(_SAMPLE_SIZE)
+    numeric = pd.to_numeric(sample, errors="coerce")
+    valid = numeric.dropna()
+    if valid.empty:
+        return False
+    # Mostly non-numeric text -> not this rule
+    if float(len(valid)) / float(len(sample)) < 0.8:
+        return False
+
+    phone_like = 0
+    for value in valid:
+        # Currency / decimal measurements have a fractional component
+        if abs(float(value) - round(float(value))) > 1e-9:
+            continue
+        as_int = int(abs(round(float(value))))
+        if as_int == 0:
+            continue
+        if len(str(as_int)) >= 9:
+            phone_like += 1
+
+    return (phone_like / float(len(valid))) > 0.8
 
 
-def _is_date_column(series: pd.Series) -> bool:
+def _is_pii_column(series: pd.Series, col_name: str | None) -> bool:
+    """Reuse existing PII detection: name hints + a value-level check."""
+    # Phone/contact names must win before measurement classification, even when
+    # values are stored as numeric (UK numbers look like large integers).
+    if _has_phone_contact_name_hint(col_name):
+        return not series.dropna().empty
+
+    hints = _infer_expected_types(col_name)
+    if hints:
+        non_null = series.dropna()
+        if not non_null.empty:
+            sample = non_null.astype(str).head(_SAMPLE_SIZE)
+            sample_series = pd.Series(sample.to_numpy(), name=col_name)
+            summary = detect_pii_in_series(sample_series)
+            if bool(summary.get("rows_with_pii", 0) > 0):
+                return True
+
+    # Name did not classify as PII — try phone-shaped numeric values
+    # (covers generic labels like \"Other\" under a Telephones header group).
+    return _looks_like_phone_number_values(series)
+
+
+_DATE_NAME_RE = re.compile(r"(date|time|timestamp|datetime|\bdob\b)", re.I)
+
+
+def _is_date_column(series: pd.Series, col_name: str | None = None) -> bool:
     if pd.api.types.is_datetime64_any_dtype(series):
         return True
     if not pd.api.types.is_object_dtype(series) and not pd.api.types.is_string_dtype(series):
@@ -108,7 +176,11 @@ def _is_date_column(series: pd.Series) -> bool:
     sample = non_null.astype(str).head(_SAMPLE_SIZE)
     parsed = pd.to_datetime(sample, errors="coerce", format="mixed")
     ratio = float(parsed.notna().sum()) / float(len(sample))
-    return ratio >= 0.8
+    # Strict threshold for unnamed/ambiguous columns. Name hint allows a
+    # lower bar so dirty ERP date columns (a few bad cells) still route to
+    # freshness/validity instead of being misread as identifiers.
+    threshold = 0.5 if (col_name and _DATE_NAME_RE.search(str(col_name))) else 0.8
+    return ratio >= threshold
 
 
 def _is_identifier_column(series: pd.Series, col_name: str | None, non_null: pd.Series) -> bool:
@@ -161,7 +233,7 @@ def classify_column(series: pd.Series, col_name: str | None = None) -> str:
     if _is_pii_column(series, name):
         return ROLE_PII
 
-    if _is_date_column(series):
+    if _is_date_column(series, name):
         return ROLE_DATE
 
     if _is_identifier_column(series, name, non_null):

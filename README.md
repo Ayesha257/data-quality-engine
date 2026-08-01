@@ -12,7 +12,8 @@ Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainab
 | Step | What runs |
 |------|-----------|
 | **Task 1** | Header-row detection + human confirmation |
-| **Task 2** | Missing values, duplicates, type mismatches |
+| **Encoding Check** | CSV raw-byte encoding via chardet (+ ftfy repair helpers); skipped for Excel |
+| **Task 2** | Missing values, duplicates (full-row + business keys), type mismatches |
 | **Task 3** | Outlier detection (IQR default; optional KNN) with column-role awareness |
 | **Task 4** | PII detection + masking (privacy risk reported separately) |
 | **Task 5** | Fuzzy text standardization via RapidFuzz (`standardize_values`) |
@@ -128,4 +129,5 @@ python -m pytest tests -q
 - PII samples printed by the CLI are already masked; privacy risk is **not** subtracted from the quality score.
 - Role-skipped columns (e.g. outliers on identifiers) are excluded from dimension pass-ratios so scores are not artificially inflated.
 - Fuzzy standardization feeds the consistency dimension alongside case/whitespace consistency; the CLI reports mappings without rewriting the working frame until you call `apply_standardization`.
-- Phase 1 intentionally omits PDF reporting and encoding repair wiring — those remain in `plan.md` for later build-order items.
+- CSV **Encoding Check** uses chardet (with optional low-confidence fallbacks) and is skipped for Excel; `ingestion._sniff_csv_encoding` delegates to `check_encoding`.
+- Phase 1 intentionally omits PDF reporting wiring — that remains in `plan.md` for later build-order items.

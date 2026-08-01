@@ -8,7 +8,8 @@ Task walkthroughs with working cells and short notes. Prefer the **package** (`d
 | `02_task2_core_profiling.ipynb` | Missing / types / duplicates (+ optional whylogs note) |
 | `03_task3_outlier_detection.ipynb` | IQR default + optional KNN + column roles |
 | `04_task4_pii_detection_masking.ipynb` | Package-backed PII detection + masking |
-| `05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization (plan.md Task 5 / Section 4.4) |
+| `05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization (plan.md Section 4.4) |
+| `06_encoding_detection_repair.ipynb` | Encoding detection (chardet) + mojibake repair (ftfy); CSV bytes only |
 | `schema_consistency_validity_freshness_scoring.ipynb` | Schema / consistency / validity / freshness + composite score |
 
 **How to run:** open any notebook → select the project `venv` kernel → Run All.

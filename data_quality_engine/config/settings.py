@@ -21,6 +21,9 @@ SETTINGS = {
     "outlier_default_method": "iqr",
     "outlier_knn_neighbors": 5,
     "outlier_knn_contamination": 0.05,
+    # When one value is this share (or more) of non-null numeric rows, IQR
+    # details get a caveat — count/status unchanged (Credit Limit-style cols).
+    "outlier_dominant_value_ratio": 0.3,
     # Encoding (CSV bytes only — plan.md Section 10 item 6 / Section 4.3)
     "encoding_confidence_threshold": 0.8,
     "encoding_sample_size": 100_000,

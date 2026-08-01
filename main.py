@@ -299,6 +299,12 @@ def _print_task3_results(df):
         sample = r.details.get("sample_values", [])
         if sample:
             print(f"  sample outlier values: {sample[:5]}")
+        if "note" in r.details and "dominant_value" in r.details:
+            print(
+                f"  note: {r.details['note']} "
+                f"(dominant_value={r.details['dominant_value']}, "
+                f"dominant_value_ratio={r.details['dominant_value_ratio']})"
+            )
     print("-" * 70)
     print(f"Columns with outliers   : {flagged_cols} / {len(results)}")
     print(f"Columns skipped (non-measurement): {skipped_cols} / {len(results)}")

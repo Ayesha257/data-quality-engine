@@ -34,6 +34,39 @@ _PRIMARY_KEY_NAME_RE = re.compile(
     r"(^|_)id$|(^|_)id\b)",
     re.I,
 )
+# Line/sequence columns that turn a parent order/invoice key into a row key.
+_LINE_COL_NAME_RE = re.compile(
+    r"(line(\s*(no\.?|number|#)?)|seq(uence)?(\s*(no\.?|number|#)?)|"
+    r"item\s*(no\.?|number|#))",
+    re.I,
+)
+# Assumption: if this share of rows are keep='first' extras on a single key,
+# the column is a one-to-many parent key (line-item table), not a unique ID.
+_ONE_TO_MANY_EXTRA_RATIO = 0.2
+
+
+# Assumption: one-to-many parent-key promotion applies to order/invoice IDs
+# (line-item tables), not customer/supplier master keys.
+_PARENT_LINEITEM_KEY_RE = re.compile(
+    r"(order\s*(no\.?|number)|invoice\s*(no\.?|number))",
+    re.I,
+)
+
+
+def _find_line_column(df: pd.DataFrame) -> str | None:
+    for col in df.columns:
+        if _LINE_COL_NAME_RE.search(str(col).strip()):
+            return col
+    return None
+
+
+def _is_likely_one_to_many_parent_key(df: pd.DataFrame, key: str) -> bool:
+    if key not in df.columns or df.empty:
+        return False
+    if not _PARENT_LINEITEM_KEY_RE.search(str(key).strip()):
+        return False
+    extras = int(df.duplicated(subset=[key], keep="first").sum())
+    return (extras / len(df)) >= _ONE_TO_MANY_EXTRA_RATIO
 
 
 def _error_result(
@@ -305,11 +338,35 @@ def check_duplicates_frame(
                     check_duplicates(df, subset=key_list, normalize=normalize)
                 )
         else:
-            # Inferred single-column keys (one CheckResult each).
+            # Inferred single-column keys; promote or skip one-to-many parents.
             for key in infer_uniqueness_keys(df):
-                results.extend(
-                    check_duplicates(df, subset=[key], normalize=normalize)
-                )
+                if _is_likely_one_to_many_parent_key(df, key):
+                    line_col = _find_line_column(df)
+                    if line_col is not None and line_col != key:
+                        results.extend(
+                            check_duplicates(
+                                df, subset=[key, line_col], normalize=normalize
+                            )
+                        )
+                    else:
+                        results.append(
+                            CheckResult(
+                                check_name="duplicate_keys",
+                                status="passed",
+                                column=str(key),
+                                issues_found=0,
+                                details={
+                                    "reason": "likely_one_to_many_parent_key",
+                                    "subset": [str(key)],
+                                    "total_rows": len(df),
+                                },
+                                dimension="uniqueness",
+                            )
+                        )
+                else:
+                    results.extend(
+                        check_duplicates(df, subset=[key], normalize=normalize)
+                    )
 
         return results
     except Exception as exc:  # noqa: BLE001

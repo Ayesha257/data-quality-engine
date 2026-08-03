@@ -152,3 +152,40 @@ def test_unrelated_column_not_flagged_as_password():
     s = pd.Series(["abc123", "xyz789"], name="product_code")
     summary = detect_pii_in_series(s)
     assert TYPE_PASSWORD not in summary["type_counts"]
+
+
+def test_datetime_column_not_flagged_as_ip_address():
+    s = pd.Series(
+        pd.to_datetime(["2020-01-06", "2020-01-07", "2021-03-15"]),
+        name="Order Date",
+    )
+    summary = detect_pii_in_series(s)
+    assert TYPE_IP_ADDRESS not in summary["type_counts"]
+    assert summary["rows_with_pii"] == 0
+
+
+def test_structured_business_code_column_not_flagged_phone_or_mobile():
+    s = pd.Series(
+        [
+            "SON-2001DEL010000022",
+            "SON-2001CUS010000001",
+            "SON-2001DELHK0000003",
+            "SON-2001DEL010000032",
+            "SON-2001DEL010000027",
+        ],
+        name="Order Number",
+    )
+    summary = detect_pii_in_series(s)
+    assert TYPE_PHONE not in summary["type_counts"]
+    assert TYPE_MOBILE not in summary["type_counts"]
+    assert TYPE_IP_ADDRESS not in summary["type_counts"]
+
+
+def test_telephone_column_with_real_numbers_still_flagged_phone():
+    s = pd.Series(
+        ["01748850555", "01582723633", "01423810810"],
+        name="Telephone",
+    )
+    summary = detect_pii_in_series(s)
+    assert summary["rows_with_pii"] >= 1
+    assert TYPE_PHONE in summary["type_counts"] or TYPE_MOBILE in summary["type_counts"]

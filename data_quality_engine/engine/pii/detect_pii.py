@@ -100,6 +100,22 @@ _BASELINE_TYPES = {
     TYPE_URL,
 }
 
+_CONTACT_OR_IP_NAME_RE = re.compile(
+    r"(phone|mobile|tel|fax|landline|\bip\b|ipv4|ipv6)",
+    re.I,
+)
+# Structured ERP codes like SON-2001DEL010000022 (not phone/IP shaped).
+# Assumption: allow alnum after the numeric run so Sage order IDs match.
+_BUSINESS_CODE_RE = re.compile(r"^[A-Z]{2,6}-?\d{4,}[A-Z0-9]*$", re.I)
+_SENSITIVE_ID_TYPES = {
+    TYPE_PHONE,
+    TYPE_MOBILE,
+    TYPE_IP_ADDRESS,
+    TYPE_CNIC,
+    TYPE_CARD,
+}
+_CONTACT_IP_TYPES = {TYPE_PHONE, TYPE_MOBILE, TYPE_IP_ADDRESS}
+
 
 def _luhn_ok(digits: str) -> bool:
     nums = [int(c) for c in digits if c.isdigit()]
@@ -403,13 +419,44 @@ def detect_pii_in_series(series) -> dict[str, Any]:
     issue_rows = 0
     col_name = str(series.name) if series.name is not None else None
     inferred = _infer_expected_types(col_name)
-    allowed_types = inferred or _BASELINE_TYPES
+    allowed_types = set(inferred or _BASELINE_TYPES)
+
+    # Datetime columns: never regex-scan for IP/PHONE/MOBILE/CNIC/CARD
+    # (ISO dates look like dotted IPs / digit runs after str()).
+    if pd.api.types.is_datetime64_any_dtype(series):
+        allowed_types -= _SENSITIVE_ID_TYPES
+    else:
+        contact_hint = bool(
+            col_name and _CONTACT_OR_IP_NAME_RE.search(str(col_name))
+        )
+        if not contact_hint:
+            sample = [
+                str(v).strip()
+                for v in series.dropna().head(200)
+                if str(v).strip()
+            ]
+            if sample:
+                code_hits = sum(
+                    1 for v in sample if _BUSINESS_CODE_RE.match(v)
+                )
+                # Assumption: >90% code-shaped => skip PHONE/MOBILE/IP only.
+                if code_hits / len(sample) > 0.9:
+                    allowed_types -= _CONTACT_IP_TYPES
 
     # Passwords/PINs/security answers have no reliable value-level regex
     # (free-form content), so a password-hinted column name is treated as
     # sufficient evidence: the whole non-empty cell is masked, rather than
     # trying to locate a "password-shaped" substring within it.
     password_hinted = bool(inferred and TYPE_PASSWORD in inferred)
+
+    if not allowed_types and not password_hinted:
+        return {
+            "column": col_name,
+            "rows_with_pii": 0,
+            "type_counts": {},
+            "masked_rows": {},
+            "allowed_types": [],
+        }
 
     for idx, value in series.items():
         if value is None or (isinstance(value, float) and pd.isna(value)):

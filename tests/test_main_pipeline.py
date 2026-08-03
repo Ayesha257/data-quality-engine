@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pandas as pd
+
 from data_quality_engine.engine.checkpoint import UserPrompt
 
 import main
@@ -76,7 +78,32 @@ def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
         "consistency",
         "validity",
         "freshness",
+        "referential_integrity_skipped",
         "scoring",
     }
     assert "data_quality_score" in line["details"]
     assert "privacy_risk_level" in line["details"]
+
+
+def test_run_pipeline_skips_empty_sheet_and_continues(tmp_path, capsys):
+    """Empty Sheet2 must not abort the run -- Sheet3 still processes."""
+    path = tmp_path / "multi_sheet.xlsx"
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        pd.DataFrame(
+            [["Name", "Age"], ["Ali", 30], ["Sara", 25]]
+        ).to_excel(writer, sheet_name="Sheet1", index=False, header=False)
+        # Truly empty sheet -- detect_header_row raises ValueError.
+        pd.DataFrame().to_excel(writer, sheet_name="Sheet2", index=False, header=False)
+        pd.DataFrame(
+            [["City", "Country"], ["Lahore", "PK"], ["Karachi", "PK"]]
+        ).to_excel(writer, sheet_name="Sheet3", index=False, header=False)
+
+    main.run_pipeline(str(path), prompt=AutoConfirmPrompt())
+    out = capsys.readouterr().out
+
+    assert "Sheet: Sheet1" in out
+    assert "Sheet: Sheet2" in out
+    assert "Skipped: empty or no header found" in out
+    assert "Sheet: Sheet3" in out
+    assert "Task 6 Results (Data Quality Score)" in out
+    assert "Done: Task 1-6 completed." in out

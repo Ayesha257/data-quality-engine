@@ -33,24 +33,90 @@ _HEADER_TOKEN_RE = re.compile(
 _ID_LIKE_RE = re.compile(r"^[A-Z]{1,6}\d{3,}[A-Z0-9-]*$", re.I)
 _NUMERIC_LIKE_RE = re.compile(r"^-?\d+([.,]\d+)?$")
 
+# ZIP local / empty / spanned headers (OOXML .xlsx etc.) and OLE compound (.xls).
+_OOXML_MAGICS = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _peek_workbook_kind(path: Path) -> str | None:
+    """
+    Cheap content sniff: read at most 8 bytes and classify binary Excel.
+
+    Returns ``\"ooxml\"``, ``\"ole\"``, or ``None`` if the file does not
+    start with a known workbook signature (so extension-based routing
+    should proceed as usual).
+    """
+    with path.open("rb") as fh:
+        head = fh.read(8)
+    if any(head.startswith(m) for m in _OOXML_MAGICS):
+        return "ooxml"
+    if head.startswith(_OLE_MAGIC):
+        return "ole"
+    return None
+
+
+def _note_extension_mismatch(path: Path, kind: str) -> None:
+    """Surface mislabeled extensions in the CLI report (and the logger)."""
+    import logging
+
+    if kind == "ooxml":
+        label = "an Excel workbook (OOXML)"
+    else:
+        label = "a legacy Excel workbook (OLE/.xls)"
+    msg = (
+        f"Note: {path.name} has a {path.suffix.lower()} extension but its "
+        f"contents are {label}. Reading it as Excel instead."
+    )
+    print(msg)
+    # info (not warning): default lastResort only emits WARNING+ to stderr,
+    # which would duplicate the print in the CLI report.
+    logging.getLogger(__name__).info(msg)
+
+
+def _encoding_decode_ok(sample: bytes, encoding: str | None) -> bool:
+    """True only when ``encoding`` is a real codec that strict-decodes sample."""
+    if not encoding or not isinstance(encoding, str):
+        return False
+    try:
+        sample.decode(encoding, errors="strict")
+        return True
+    except (LookupError, UnicodeDecodeError, TypeError, ValueError):
+        return False
+
 
 def _sniff_csv_encoding(path: Path) -> str:
     """
     Detect CSV encoding via checks/encoding.check_encoding (chardet + optional
     fallback recommendation). Samples the first 100_000 bytes — same limit as
     before this module existed; chardet logic now lives in one place.
+
+    Never trusts chardet blindly: the chosen encoding must strict-decode the
+    sample. ``encoding=None`` (even at confidence 1.0) and any encoding that
+    fails the probe fall through to utf-8-sig → cp1252 → latin-1.
     """
     sample = path.read_bytes()[:100_000]
     try:
-        from data_quality_engine.engine.checks.encoding import check_encoding
+        from data_quality_engine.engine.checks.encoding import (
+            check_encoding,
+            _try_fallback_decodes,
+        )
 
         result = check_encoding(sample)
         details = result.details or {}
         enc = details.get("encoding")
-        # When chardet is unsure, prefer a fallback that actually decoded.
-        if details.get("low_confidence") and details.get("recommended_encoding"):
-            enc = details["recommended_encoding"]
-        return enc or "utf-8"
+
+        if _encoding_decode_ok(sample, enc):
+            # Preserve prior low-confidence preference when the chardet
+            # encoding itself still decodes cleanly.
+            if details.get("low_confidence") and details.get("recommended_encoding"):
+                return str(details["recommended_encoding"])
+            return str(enc)
+
+        # Probe failed (or encoding was None): use recommended / run fallbacks.
+        recommended = details.get("recommended_encoding")
+        if not recommended:
+            recommended = _try_fallback_decodes(sample).get("recommended_encoding")
+        return str(recommended) if recommended else "utf-8"
     except Exception:
         return "utf-8"
 
@@ -109,12 +175,23 @@ def _read_excel_via_calamine_direct(path: Path) -> dict[str, pd.DataFrame]:
     return sheets
 
 
-def _read_excel_raw(path: Path) -> dict[str, pd.DataFrame]:
+def _read_excel_raw(
+    path: Path,
+    *,
+    force_kind: str | None = None,
+) -> dict[str, pd.DataFrame]:
+    """
+    Read a workbook. ``force_kind`` is ``\"ole\"`` / ``\"ooxml\"`` when the
+    caller detected a binary Excel payload behind a non-Excel extension.
+    """
     suffix = path.suffix.lower()
     errors: list[str] = []
     last_exc: Exception | None = None
 
-    if suffix in _EXCEL_XLRD:
+    use_ole = force_kind == "ole" or (
+        force_kind is None and suffix in _EXCEL_XLRD
+    )
+    if use_ole:
         engines = ["xlrd"]
     else:
         # calamine first: openpyxl dies on some Sage X3 stylesheets
@@ -143,7 +220,8 @@ def _read_excel_raw(path: Path) -> dict[str, pd.DataFrame]:
             errors.append(f"{engine}: {exc}")
 
     # Last resort: talk to python-calamine directly (pandas engine quirk / version)
-    if suffix in _EXCEL_OPENPYXL and _calamine_installed():
+    allow_calamine_direct = force_kind == "ooxml" or suffix in _EXCEL_OPENPYXL
+    if allow_calamine_direct and _calamine_installed():
         try:
             return _read_excel_via_calamine_direct(path)
         except Exception as exc:  # noqa: BLE001
@@ -160,6 +238,9 @@ def read_excel_file(filepath: str | Path) -> dict[str, pd.DataFrame]:
     """
     Reads all sheets (or a single CSV as one sheet) with NO header assumption
     (header=None so header detection can inspect raw rows).
+
+    Extension is the default router, but a cheap magic-byte peek overrides a
+    ``.csv`` claim when the payload is actually OOXML or OLE Excel.
     """
     path = Path(filepath)
     if not path.exists():
@@ -179,7 +260,12 @@ def read_excel_file(filepath: str | Path) -> dict[str, pd.DataFrame]:
             f"File is {size_mb:.1f} MB which exceeds the configured limit of {max_mb} MB."
         )
 
+    # Content sniff before any CSV encoding/parse work (mislabeled exports).
     if suffix in _CSV:
+        kind = _peek_workbook_kind(path)
+        if kind in {"ooxml", "ole"}:
+            _note_extension_mismatch(path, kind)
+            return _read_excel_raw(path, force_kind=kind)
         return _read_csv_raw(path)
     return _read_excel_raw(path)
 

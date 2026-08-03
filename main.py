@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from data_quality_engine.engine.checkpoint import (
@@ -26,6 +28,11 @@ from data_quality_engine.engine.checks.consistency import check_consistency_fram
 from data_quality_engine.engine.checks.validity import check_validity_frame
 from data_quality_engine.engine.checks.freshness import check_freshness_frame
 from data_quality_engine.engine.checks.encoding import check_encoding
+from data_quality_engine.engine.checks.referential_integrity import (
+    check_referential_integrity,
+)
+from data_quality_engine.config import domain_rules
+from data_quality_engine.engine.report import generate_html_report, write_html_report
 from data_quality_engine.engine.column_classifier import classify_columns
 from data_quality_engine.config.settings import SETTINGS
 from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
@@ -580,13 +587,98 @@ def _print_scoring_results(
     return score
 
 
-def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPrompt | None = None):
+def _print_referential_integrity_results(
+    df,
+    reference_dir: str | None,
+    include_products: bool = False,
+):
+    """
+    Opt-in only: reference master files (Customer List.xls, Supplier
+    List.xls, Product Data by Product Site.xlsx) are not guaranteed to sit
+    alongside every file being checked, so this step only runs when the
+    caller explicitly passes --reference-dir. When skipped, that is printed
+    so it is visible in the report instead of silently absent.
+
+    Not folded into the Task 6 composite score: scoring.py's 8-dimension
+    rubric (RUBRIC_DIMENSIONS in scoring.py) doesn't have "integrity" or
+    "accuracy" slots yet -- adding those is a scoring.py/plan.md change,
+    out of scope here. This prints as its own section, the same way
+    Privacy Risk is reported separately from the composite score.
+    """
+    print("\n=== Referential Integrity (opt-in, requires --reference-dir) ===")
+    if not reference_dir:
+        print("Skipped: no --reference-dir supplied.")
+        return {"referential_results": [], "referential_columns_scanned": 0,
+                "referential_columns_with_issues": 0}
+
+    ref_map = domain_rules.reference_lists_for_frame(
+        df, Path(reference_dir), include_products=include_products
+    )
+    if not ref_map:
+        print(
+            "No columns in this sheet matched a known reference list "
+            "(Customer No., Supplier Code, Product, ...)."
+        )
+        return {"referential_results": [], "referential_columns_scanned": 0,
+                "referential_columns_with_issues": 0}
+
+    results = []
+    bad_cols = 0
+    print("-" * 70)
+    print(f"{'Column':30} {'Ref size':>10} {'Issues':>10} {'Status':>10}")
+    print("-" * 70)
+    for column, values in ref_map.items():
+        ref_set = set(values)
+        result = check_referential_integrity(df, column, ref_set)
+        results.append(result)
+        if result.status != "passed":
+            bad_cols += 1
+        print(
+            f"{str(column):30} {len(ref_set):10d} {result.issues_found:10d} "
+            f"{result.status:>10}"
+        )
+        if result.status == "failed":
+            print(f"  bad values: {result.details.get('sample_invalid_values', [])[:5]}")
+        elif result.status == "error":
+            print(f"  error: {result.details.get('error')}")
+    print("-" * 70)
+
+    return {
+        "referential_results": results,
+        "referential_columns_scanned": len(results),
+        "referential_columns_with_issues": bad_cols,
+    }
+
+
+def run_pipeline(
+    filepath: str,
+    sheet_name: str | None = None,
+    prompt: UserPrompt | None = None,
+    *,
+    reference_dir: str | None = None,
+    include_products: bool = False,
+    write_report: bool = False,
+    report_dir: str | None = None,
+):
     """
     Full Phase 1 pipeline for one file (all sheets, or a single --sheet).
 
     Order: header confirm → scope confirm → column classification →
     missing/duplicates/types → outliers → PII → schema/consistency/
-    validity/freshness → composite score + privacy risk.
+    validity/freshness → referential integrity (opt-in) → composite score
+    + privacy risk → HTML report (opt-in).
+
+    reference_dir: opt-in only. When set, points to the folder holding
+    Customer List.xls / Supplier List.xls / Product Data by Product
+    Site.xlsx, and referential-integrity checks run against whatever
+    columns in this file match those masters. When None (default), the
+    step is skipped and that is printed explicitly.
+    include_products: also check product-code columns against Product
+    Data by Product Site.xlsx (large file — off by default).
+    write_report: opt-in. When True, writes an HTML report per sheet to
+    report_dir (default SETTINGS["reports_dir"]) built from the exact same
+    CheckResult objects the console output above already printed -- see
+    engine/report.py's module docstring for why that matters.
     """
     prompt = prompt or CLIPrompt()
     run_id = uuid.uuid4().hex[:12]
@@ -601,6 +693,7 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
         items = list(sheets.items())
 
     for sname, raw_df in items:
+        sheet_start = time.perf_counter()
         print("\n" + "=" * 80)
         print(f"Sheet: {sname}")
 
@@ -628,6 +721,9 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
             task5_summary = _print_task5_results(
                 df, classification, task4_summary.get("pii_summary_by_column")
             )
+            referential_summary = _print_referential_integrity_results(
+                df, reference_dir, include_products
+            )
             score = _print_scoring_results(
                 task2_summary,
                 task3_summary,
@@ -636,6 +732,33 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
                 fuzzy_summary,
                 encoding_summary,
             )
+
+            if write_report:
+                report_html = generate_html_report(
+                    file_label=Path(filepath).name,
+                    sheet_name=sname,
+                    rows=len(df),
+                    columns=df.shape[1],
+                    header_row=header_row,
+                    classification=classification,
+                    task2_summary=task2_summary,
+                    task3_summary=task3_summary,
+                    task4_summary=task4_summary,
+                    fuzzy_summary=fuzzy_summary,
+                    task5_summary=task5_summary,
+                    score=score,
+                    processing_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    execution_time_s=time.perf_counter() - sheet_start,
+                )
+                out_dir = Path(report_dir) if report_dir else SETTINGS["reports_dir"]
+                stem = Path(filepath).stem
+                safe_sheet = "".join(c if c.isalnum() else "_" for c in sname)
+                out_path = write_html_report(
+                    report_html,
+                    reports_dir=out_dir,
+                    filename=f"{stem}_{safe_sheet}_data_quality_report.html",
+                )
+                print(f"\nReport written: {out_path}")
         except Exception as exc:  # noqa: BLE001 - never abort remaining sheets
             log_event(
                 logger,
@@ -661,6 +784,7 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
             "consistency",
             "validity",
             "freshness",
+            "referential_integrity" if reference_dir else "referential_integrity_skipped",
             "scoring",
         ]
         pass_count = (
@@ -707,6 +831,8 @@ def run_pipeline(filepath: str, sheet_name: str | None = None, prompt: UserPromp
                 "scorable_weight_fraction": score.get("scorable_weight_fraction"),
                 "privacy_risk_level": (score.get("privacy_risk") or {}).get("risk_level"),
                 "fuzzy_columns_with_issues": fuzzy_summary["fuzzy_columns_with_issues"],
+                "referential_columns_scanned": referential_summary["referential_columns_scanned"],
+                "referential_columns_with_issues": referential_summary["referential_columns_with_issues"],
                 "encoding_skipped": bool((encoding_summary or {}).get("skipped")),
                 "encoding_status": (
                     None
@@ -733,6 +859,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("filepath", help="Path to .xlsx/.xls/.csv file")
     p.add_argument("--sheet", default=None, help="Optional sheet name")
+    p.add_argument(
+        "--reference-dir",
+        default=None,
+        help=(
+            "Opt-in: folder containing Customer List.xls / Supplier "
+            "List.xls / Product Data by Product Site.xlsx. When set, runs "
+            "referential-integrity checks against whatever columns in "
+            "this file match those masters. Skipped by default."
+        ),
+    )
+    p.add_argument(
+        "--include-products",
+        action="store_true",
+        help="Also check product-code columns against Product Data by "
+        "Product Site.xlsx (large file, off by default).",
+    )
+    p.add_argument(
+        "--report",
+        action="store_true",
+        help="Write an HTML data-quality report per sheet, built from the "
+        "exact same check results as the console output above (never a "
+        "separate calculation). Written to --report-dir or "
+        "SETTINGS['reports_dir'] (./reports by default).",
+    )
+    p.add_argument(
+        "--report-dir",
+        default=None,
+        help="Directory to write --report output to. Defaults to "
+        "SETTINGS['reports_dir'].",
+    )
     return p
 
 
@@ -741,4 +897,11 @@ if __name__ == "__main__":
     path = Path(args.filepath)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
-    run_pipeline(str(path), args.sheet)
+    run_pipeline(
+        str(path),
+        args.sheet,
+        reference_dir=args.reference_dir,
+        include_products=args.include_products,
+        write_report=args.report,
+        report_dir=args.report_dir,
+    )

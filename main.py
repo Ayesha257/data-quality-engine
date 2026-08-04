@@ -18,6 +18,7 @@ from data_quality_engine.engine.ingestion import (
     detect_header_row,
     header_preview,
     load_with_confirmed_header,
+    get_sheet_visibility,
 )
 from data_quality_engine.engine.checks.missing_values import check_missing_values
 from data_quality_engine.engine.checks.duplicates import check_duplicates_frame
@@ -690,7 +691,20 @@ def run_pipeline(
             raise KeyError(f"Sheet '{sheet_name}' not found. Available: {list(sheets.keys())}")
         items = [(sheet_name, sheets[sheet_name])]
     else:
-        items = list(sheets.items())
+        # FIX (ISS-01, validation audit): don't silently include hidden
+        # sheets (e.g. Sage X3's hidden "Sage.X3.ReservedSheet" config
+        # sheet) in the default all-sheets run -- they're not data the
+        # user asked to be assessed. An explicit --sheet still overrides
+        # this and can target a hidden sheet on purpose.
+        visibility = get_sheet_visibility(filepath)
+        hidden = [name for name in sheets if visibility.get(name, True) is False]
+        if hidden:
+            print(f"Skipping hidden sheet(s) (not requested explicitly): {hidden}")
+        items = [(name, df) for name, df in sheets.items() if name not in hidden]
+        if not items:
+            # Every sheet was hidden -- fall back to processing them all
+            # rather than silently doing nothing.
+            items = list(sheets.items())
 
     for sname, raw_df in items:
         sheet_start = time.perf_counter()

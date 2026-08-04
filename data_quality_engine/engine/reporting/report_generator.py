@@ -188,6 +188,7 @@ def build_report_data(
     fuzzy_results: dict[str, dict[str, Any]] | None,
     score: dict[str, Any],
     engine_version: str = "Phase 1",
+    sheet_disclosure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     check_results_by_name: check_name -> list[CheckResult], covering every
@@ -214,11 +215,21 @@ def build_report_data(
     }
 
     # ---- PII summary block ----
+    # FIX (ISS-04, validation audit): total_rows_with_pii used to be
+    # sum(rows_with_pii per column), which double/triple counts any row
+    # that has PII in more than one column and can exceed the dataset's
+    # actual row count (observed: 425,659 "rows with PII" on a 101,352-row
+    # file). It is now the number of *distinct* rows flagged by any
+    # PII-flagged column -- a union of row indices, never more than
+    # len(df).
     pii_flagged = {c: s for c, s in (pii_summary_by_column or {}).items() if s.get("rows_with_pii", 0) > 0}
+    _pii_row_union: set[Any] = set()
+    for s in pii_flagged.values():
+        _pii_row_union.update((s.get("masked_rows") or {}).keys())
     pii_block = {
         "columns_with_pii": len(pii_flagged),
         "total_columns": len(pii_summary_by_column or {}),
-        "total_rows_with_pii": sum(s.get("rows_with_pii", 0) for s in pii_flagged.values()),
+        "total_rows_with_pii": len(_pii_row_union),
         "types_found": sorted({t for s in pii_flagged.values() for t in s.get("type_counts", {})}),
         "flagged_columns": sorted(pii_flagged.keys()),
     }
@@ -274,6 +285,29 @@ def build_report_data(
             f"PII detected in {pii_block['columns_with_pii']} column(s) -- masking required before sharing"
         )
 
+    # ---- Sheet disclosure (FIX ISS-01/ISS-02/ISS-05, validation audit) ----
+    # Whenever the workbook has more than one sheet, or a sheet was skipped
+    # because it was hidden/empty, say so up front -- previously a reader
+    # had no way to know other sheets existed (e.g. 5 of 6 year-sheets in
+    # a multi-year invoice export were silently never analyzed).
+    sd = sheet_disclosure or {}
+    other_sheets = sd.get("other_sheets_in_workbook") or []
+    hidden_sheets = sd.get("hidden_sheet_names") or []
+    other_reported = sd.get("other_sheets_also_reported") or []
+    if other_sheets:
+        not_covered = [s for s in other_sheets if s not in other_reported]
+        msg = (
+            f"This workbook contains {sd.get('total_sheets_in_workbook', 1)} sheets. "
+            f"This report covers sheet '{sheet_name}'."
+        )
+        if other_reported:
+            msg += f" Separate reports were also generated for: {', '.join(other_reported)}."
+        if not_covered:
+            msg += f" NOT analyzed in any report: {', '.join(not_covered)}."
+        if hidden_sheets:
+            msg += f" Hidden sheet(s) skipped: {', '.join(hidden_sheets)}."
+        critical_findings.insert(0, msg)
+
     return {
         "meta": {
             "filepath": filepath,
@@ -298,6 +332,7 @@ def build_report_data(
             "dimension_scores": score.get("dimension_scores", {}),
             "dimensions_excluded": score.get("dimensions_excluded", []),
         },
+        "sheet_disclosure": sheet_disclosure or {},
         "privacy_risk": score.get("privacy_risk"),
         "pii": pii_block,
         "fuzzy": fuzzy_block,

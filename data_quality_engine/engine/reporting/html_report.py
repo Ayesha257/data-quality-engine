@@ -58,6 +58,39 @@ def _score_ring(score: float | None, size: int = 120) -> str:
     """
 
 
+def _sheet_disclosure_banner(sd: dict[str, Any], analyzed_sheet: str) -> str:
+    """
+    FIX (ISS-01/ISS-02/ISS-05, validation audit): make it impossible to
+    miss that a workbook had other sheets. Renders nothing when the
+    workbook only has one sheet (the common case, unchanged behaviour).
+    """
+    total = sd.get("total_sheets_in_workbook", 1)
+    if total <= 1:
+        return ""
+    other = sd.get("other_sheets_in_workbook") or []
+    also_reported = sd.get("other_sheets_also_reported") or []
+    not_covered = [s for s in other if s not in also_reported]
+    hidden = sd.get("hidden_sheet_names") or []
+
+    parts = [f"This workbook contains <b>{total}</b> sheets. This report covers sheet <b>'{analyzed_sheet}'</b> only."]
+    if also_reported:
+        parts.append(f"Separate reports were also generated for: {', '.join(also_reported)}.")
+    if not_covered:
+        parts.append(
+            f'<span style="color:#B91C1C"><b>Not analyzed in any report:</b> {", ".join(not_covered)}.</span>'
+        )
+    if hidden:
+        parts.append(f"Hidden sheet(s) skipped: {', '.join(hidden)}.")
+
+    return (
+        '<div style="max-width:700px;margin:12px auto 0;padding:10px 16px;'
+        'background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;'
+        'font-size:13px;color:#92400E;text-align:left">'
+        + " ".join(parts)
+        + "</div>"
+    )
+
+
 def _kpi_card(label: str, score_info: dict[str, Any]) -> str:
     score = score_info.get("score")
     available = score_info.get("available", False)
@@ -280,6 +313,7 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
   <div class="hero-icon">&#10003;</div>
   <h1>Data Quality Assessment Report</h1>
   <div class="subtitle">{meta['filename']} &middot; Sheet: {meta['sheet_name']}</div>
+  {_sheet_disclosure_banner(d.get('sheet_disclosure') or {}, meta['sheet_name'])}
   <div class="score-hero" style="justify-content:center">
     {_score_ring(sc['overall'])}
     <div style="text-align:left">

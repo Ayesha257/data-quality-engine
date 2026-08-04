@@ -1,0 +1,172 @@
+{
+  "version": 2,
+  "description": "Enterprise Data Quality Engine Business Rules Specification.",
+  "rules": [
+    {
+      "id": "customer_no_required",
+      "name": "Customer Identifier Mandatory Check",
+      "type": "required",
+      "column": "Customer No.",
+      "enabled": true,
+      "when_column_present": true,
+      "severity": "HIGH",
+      "business_impact": "Missing customer identifiers prevent order tracking, billing, and reporting.",
+      "recommendation": "Missing Customer ID -> Make Customer No. a mandatory field in ERP ingestion."
+    },
+    {
+      "id": "customer_site_unique",
+      "name": "Customer & Site Compound Key Uniqueness",
+      "type": "unique",
+      "columns": ["Customer No.", "Add. Code"],
+      "compound": true,
+      "enabled": true,
+      "when_columns_present": true,
+      "severity": "CRITICAL",
+      "business_impact": "Duplicate customer site records cause routing errors and invoice splits.",
+      "recommendation": "Duplicate Customer Site Key -> Enforce UNIQUE compound index on (Customer No., Add. Code)."
+    },
+    {
+      "id": "qty_ordered_datatype",
+      "name": "Quantity Ordered Numeric Type Check",
+      "type": "datatype",
+      "column": "Quantity Ordered STU",
+      "expected_type": "numeric",
+      "enabled": true,
+      "when_column_present": true,
+      "severity": "HIGH",
+      "business_impact": "Non-numeric order quantities break inventory planning and revenue calculation.",
+      "recommendation": "Non-Numeric Quantity -> Convert and validate quantity columns as numeric types."
+    },
+    {
+      "id": "qty_non_negative",
+      "name": "Quantity Ordered Non-Negative Range",
+      "type": "min_max",
+      "column": "Quantity Ordered STU",
+      "min": 0,
+      "enabled": true,
+      "when_column_present": true,
+      "severity": "HIGH",
+      "business_impact": "Negative order quantities cause inventory underflow and negative revenue reporting.",
+      "recommendation": "Negative Quantity -> Enforce Quantity > 0 validation rule on order submission."
+    },
+    {
+      "id": "email_format_check",
+      "name": "Customer Email Format Pattern",
+      "type": "regex",
+      "column_pattern": "email",
+      "pattern": "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+      "enabled": true,
+      "when_column_matches_name": true,
+      "severity": "MEDIUM",
+      "business_impact": "Invalid email formats cause customer notification and billing failures.",
+      "recommendation": "Missing Email -> Make Email mandatory and validate format against standard regex."
+    },
+    {
+      "id": "order_status_allowed",
+      "name": "Order Status Allowed Values",
+      "type": "allowed_values",
+      "column_pattern": "status",
+      "allowed_values": ["Open", "Closed", "Pending", "Cancelled", "Shipped", "Hold", "In Progress", "Completed"],
+      "enabled": true,
+      "when_column_matches_name": true,
+      "severity": "MEDIUM",
+      "business_impact": "Invalid status values disrupt operational workflow automation.",
+      "recommendation": "Invalid Status -> Enforce controlled lookup vocabulary for status columns."
+    },
+    {
+      "id": "expected_del_after_order",
+      "name": "Expected Delivery Date >= Order Date",
+      "type": "cross_column",
+      "left": "Expected Del Date",
+      "op": ">=",
+      "right": "Order Date",
+      "enabled": true,
+      "severity": "HIGH",
+      "business_impact": "Delivery dates prior to order creation indicate corrupted log data.",
+      "recommendation": "Invalid Date Order -> Validate Expected Delivery Date >= Order Date."
+    },
+    {
+      "id": "ship_after_order",
+      "name": "Ship Date >= Order Date",
+      "type": "cross_column",
+      "left": "Ship Date",
+      "op": ">=",
+      "right": "Order Date",
+      "enabled": true,
+      "severity": "HIGH",
+      "business_impact": "Shipment dates preceding order entry cause false fulfillment SLA metrics.",
+      "recommendation": "Invalid Ship Date -> Validate Ship Date >= Order Date."
+    },
+    {
+      "id": "expected_del_after_so_created",
+      "name": "Expected Delivery Date >= SO Date Created",
+      "type": "cross_column",
+      "left": "Expected  Del. Date",
+      "op": ">=",
+      "right": "SO Date Created",
+      "enabled": true,
+      "severity": "HIGH",
+      "business_impact": "Expected delivery preceding sales order creation causes SLA distortion.",
+      "recommendation": "Invalid Delivery Timeline -> Validate Expected Delivery Date >= SO Date Created."
+    },
+    {
+      "id": "discount_less_than_total",
+      "name": "Discount Amount <= Total Amount",
+      "type": "cross_column",
+      "left": "Discount Amount",
+      "op": "<=",
+      "right": "Total Amount",
+      "enabled": true,
+      "severity": "CRITICAL",
+      "business_impact": "Discounts exceeding order totals result in negative invoice balances.",
+      "recommendation": "Discount > Total -> Enforce Discount <= Total Amount boundary check."
+    },
+    {
+      "id": "invoice_date_past_or_present",
+      "name": "Invoice Date <= Today",
+      "type": "cross_column",
+      "left": "Invoice Date",
+      "op": "<=",
+      "right": "$TODAY",
+      "enabled": true,
+      "severity": "HIGH",
+      "business_impact": "Post-dated invoices corrupt financial accounting periods.",
+      "recommendation": "Future Invoice Date -> Reject invoice dates greater than today's date."
+    }
+  ],
+  "duplicate_detection": {
+    "compound_keys": [
+      {
+        "id": "customer_site",
+        "columns": ["Customer No.", "Add. Code"],
+        "require_all_present": true
+      },
+      {
+        "id": "customer_only",
+        "columns": ["Customer No."],
+        "require_all_present": true
+      }
+    ],
+    "descriptive_column_patterns": [
+      "city",
+      "country",
+      "description",
+      "desc",
+      "category",
+      "prod desc",
+      "product description",
+      "address line",
+      "name",
+      "state",
+      "region",
+      "status",
+      "type",
+      "group",
+      "comment",
+      "notes"
+    ],
+    "uniqueness_min_score": 0.60,
+    "uniqueness_min_rows": 20,
+    "one_to_many_extra_ratio": 0.20
+  }
+}

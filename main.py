@@ -711,6 +711,10 @@ def run_pipeline(
         print("\n" + "=" * 80)
         print(f"Sheet: {sname}")
 
+        if raw_df is None or raw_df.empty or raw_df.dropna(how="all").empty:
+            print("Skipped: empty or no header found.")
+            continue
+
         # Task 1: detect + confirm header
         detected = detect_header_row(raw_df)
         preview = header_preview(raw_df, detected)

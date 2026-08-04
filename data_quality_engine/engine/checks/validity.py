@@ -1,34 +1,9 @@
-"""Validity check -> Validity dimension (teacher rubric, 20% -- largest weight).
+"""Validity Check & Business Rule Validation Engine Integration.
 
-Distinct from type_mismatch.py ("is this cell stored as the right Python
-type?" -> rubric "Type Reliability") and outliers.py ("is this a
-statistical outlier?" -> rubric "Outlier Risk"). Validity here means: does
-the *value itself* follow the rules a human would expect, independent of
-storage type or statistical distribution. Per the rubric's own examples:
-non-numeric revenue, invalid dates, negative age, invalid emails.
-
-Four independent sub-checks, one CheckResult per column (plus one per
-cross-column rule):
-
-1. measurement columns whose *name* implies non-negative semantics
-   (qty, quantity, count, age, stock, units, weight, hours, days) ->
-   flag negative values.
-2. measurement columns matching Easby's known suspicious-zero list
-   (domain_rules.suspicious_zero_columns_present -- previously unused
-   scaffolding, now wired in) -> flag zero values as suspicious, not just
-   "valid but zero".
-3. date columns -> flag individual unparseable cells (a column can be
-   *mostly* dates and still have a handful of malformed ones -- that's a
-   validity problem even though the column's dominant type is fine) and
-   implausible dates (year outside a sane configurable window).
-4. any column whose name suggests an email field -> flag values that
-   don't match the same email pattern detect_pii.py already uses (import,
-   not duplicate).
-
-Plus, at the frame level: cross-column date-order rules from
-domain_rules.default_cross_column_rules() (e.g. Expected Delivery Date
-must be >= Order Date) -- another previously-unused module finally doing
-real work.
+Runs:
+1. JSON-configurable Business Rule Engine (single-column and cross-column rules).
+2. Semantic role-based validity checks (non-negative numeric, unparseable dates, email format).
+3. Domain cross-column comparison rules.
 """
 
 from __future__ import annotations
@@ -43,24 +18,24 @@ from data_quality_engine.config.domain_rules import (
     default_cross_column_rules,
     suspicious_zero_columns_present,
 )
-from data_quality_engine.config.settings import SETTINGS
+from data_quality_engine.config.rule_engine import BusinessRuleEngine
 from data_quality_engine.engine.column_classifier import (
     ROLE_DATE,
     ROLE_MEASUREMENT,
-    ROLE_PII,
+    build_column_metadata_layer,
     classify_columns,
 )
 from data_quality_engine.engine.models import CheckResult
 from data_quality_engine.engine.pii.detect_pii import TYPE_EMAIL, _EMAIL_RE
 
 _NON_NEGATIVE_NAME_RE = re.compile(
-    r"\b(qty|quantity|count|age|stock|units?|weight|hours?|days?)\b", re.I
+    r"\b(qty|quantity|count|age|stock|units?|weight|hours?|days?)\b",
+    re.I,
 )
 _EMAIL_NAME_RE = re.compile(r"email", re.I)
 
 _MIN_YEAR = 1990
-_MAX_YEAR_AHEAD = 1  # allow up to 1 year in the future (e.g. forward orders)
-
+_MAX_YEAR_AHEAD = 1
 _SAMPLE_CAP = 100
 
 
@@ -86,7 +61,9 @@ def _passed_skip(col_name: str | None, reason: str, **extra: Any) -> CheckResult
     )
 
 
-def _result(col_name: str | None, issue_idx: list[Any], rule: str, extra: dict | None = None) -> CheckResult:
+def _result(
+    col_name: str | None, issue_idx: list[Any], rule: str, extra: dict | None = None
+) -> CheckResult:
     issues = len(issue_idx)
     status = "passed" if issues == 0 else "failed"
     details = {
@@ -115,7 +92,9 @@ def _check_non_negative(series: pd.Series, col_name: str) -> CheckResult | None:
     return _result(col_name, issue_idx, "negative_value_not_allowed")
 
 
-def _check_suspicious_zero(series: pd.Series, col_name: str, suspicious_cols: set[str]) -> CheckResult | None:
+def _check_suspicious_zero(
+    series: pd.Series, col_name: str, suspicious_cols: set[str]
+) -> CheckResult | None:
     if col_name not in suspicious_cols:
         return None
     numeric = pd.to_numeric(series, errors="coerce")
@@ -158,13 +137,6 @@ def _check_email_format(
     *,
     force: bool = False,
 ) -> CheckResult | None:
-    """
-    Validate email-shaped values.
-
-    Runs when the column name contains \"email\", or when ``force=True``
-    (caller already knows the column holds emails, e.g. PII summary with
-    EMAIL type_counts — \"Statements\", \"POs/Sales Quotes\", etc.).
-    """
     if not force and not _EMAIL_NAME_RE.search(col_name):
         return None
     non_null = series.dropna()
@@ -181,13 +153,8 @@ def _column_has_email_pii(
     role: str | None,
     pii_summary_by_column: dict[str, dict[str, Any]] | None,
 ) -> bool:
-    """True when precomputed PII summary reports EMAIL hits for this column."""
     if not pii_summary_by_column:
         return False
-    if role is not None and role != ROLE_PII:
-        # Still allow email validation if the summary says EMAIL even when
-        # role wasn't pii (defensive); primary path is role=pii + EMAIL.
-        pass
     summary = pii_summary_by_column.get(col_name)
     if summary is None:
         return False
@@ -245,19 +212,8 @@ def check_validity_frame(
     roles: dict[str, str] | None = None,
     cross_column_rules: list[dict[str, Any]] | None = None,
     pii_summary_by_column: dict[str, dict[str, Any]] | None = None,
+    column_metadata: dict[str, Any] | None = None,
 ) -> list[CheckResult]:
-    """
-    Run all validity sub-checks across df. One CheckResult per applicable
-    rule per column, plus one per cross-column date-order rule. Columns
-    with no applicable validity rule still get a single "passed/skipped"
-    CheckResult, matching the exhaustive per-column reporting style used
-    by missing_values.py / type_mismatch.py.
-
-    pii_summary_by_column: optional column -> detect_pii_in_series() summary
-        already computed by the pipeline (Task 4). When present, columns
-        with EMAIL in type_counts also get email-format validation even if
-        the column name does not contain \"email\".
-    """
     try:
         if df is None or not isinstance(df, pd.DataFrame):
             raise TypeError("df must be a pandas DataFrame")
@@ -273,13 +229,23 @@ def check_validity_frame(
                 )
             ]
 
+        results: list[CheckResult] = []
+
+        # 1. JSON Business Rule Engine Execution (Only when no explicit cross_column_rules passed)
+        if cross_column_rules is None:
+            rule_engine = BusinessRuleEngine()
+            json_results = rule_engine.evaluate_rules(df, roles=roles)
+            results.extend(json_results)
+
+        # 2. Built-in Semantic Role & Heuristic Validity Checks
+        meta_layer = column_metadata or build_column_metadata_layer(df)
         column_roles = roles if roles is not None else classify_columns(df)
         suspicious_cols = set(suspicious_zero_columns_present(df))
 
-        results: list[CheckResult] = []
         for col in df.columns:
             col_name = str(col)
             role = column_roles.get(col)
+            meta = meta_layer.get(col_name)
             series = df[col]
             applied: list[CheckResult] = []
 
@@ -301,13 +267,14 @@ def check_validity_frame(
             if r is not None:
                 applied.append(r)
 
-            if not applied:
+            if not applied and not results:
                 results.append(
                     _passed_skip(col_name, "skipped_no_rule_for_role", role=role)
                 )
             else:
                 results.extend(applied)
 
+        # 3. Domain Cross-Column Rules Fallback
         results.extend(_check_cross_column_date_rules(df, cross_column_rules))
         return results
     except Exception as exc:  # noqa: BLE001

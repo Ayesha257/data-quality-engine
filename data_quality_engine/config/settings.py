@@ -82,6 +82,15 @@ SETTINGS = {
     # like "Customer No.", "Supplier Code", "Invoice No", etc.
     "duplicate_key_columns": None,
     "duplicate_normalize_strings": True,
+    # Evidence-based uniqueness inference (see infer_uniqueness_keys /
+    # uniqueness_evidence in checks/duplicates.py). A column is only treated
+    # as an "expected unique" business key when its combined evidence score
+    # clears this bar -- a matching name alone (e.g. "*Code") is not enough.
+    "uniqueness_key_min_score": 0.6,
+    # Below this many non-null values, uniqueness ratio / repeated-value
+    # frequency are too noisy to trust, so we fall back to the name-pattern
+    # signal alone (this is why small hand-built test frames keep working).
+    "uniqueness_evidence_min_rows": 20,
     # Easby: numeric fields where zeros are suspicious (completeness/validity)
     "suspicious_zero_columns": [
         "GBP Amt-tax",

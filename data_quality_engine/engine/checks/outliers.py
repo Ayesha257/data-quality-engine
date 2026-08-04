@@ -306,7 +306,7 @@ def detect_outliers_frame(df: pd.DataFrame, method: str = "iqr") -> list[CheckRe
             if numeric.notna().sum() == 0:
                 continue
             role = classification.get(col)
-            if role is not None and role != "measurement":
+            if role is not None and role not in {"measurement", "financial"}:
                 results.append(
                     _passed_skip(
                         str(col),

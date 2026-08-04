@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Data Quality Report -- Customer List.xls</title>
+<title>Data Quality Report -- sample_data.xlsx</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 * { box-sizing: border-box; }
@@ -79,32 +79,32 @@ table.striped tr:hover td { background: #EFF6FF; }
   <div class="hero-brand">Data Quality Platform</div>
   <div class="hero-icon">&#128202;</div>
   <h1>Enterprise Data Quality Assessment</h1>
-  <div class="subtitle">Customer List.xls &middot; Sheet: Sheet1</div>
+  <div class="subtitle">sample_data.xlsx &middot; Sheet: Sheet1</div>
   
   <div class="score-hero">
     
     <div class="gauge-wrap">
       <svg width="160" height="160" viewBox="0 0 120 120" class="gauge-svg">
         <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="10"/>
-        <circle cx="60" cy="60" r="52" fill="none" stroke="#D97706" stroke-width="10"
-          stroke-dasharray="326.7" stroke-dashoffset="144.3"
+        <circle cx="60" cy="60" r="52" fill="none" stroke="#DC2626" stroke-width="10"
+          stroke-dasharray="326.7" stroke-dashoffset="196.0"
           stroke-linecap="round" transform="rotate(-90 60 60)" class="gauge-arc"/>
-        <text x="60" y="58" text-anchor="middle" font-size="24" font-weight="800" fill="white">55.8</text>
-        <text x="60" y="78" text-anchor="middle" font-size="12" font-weight="700" fill="#D97706">D</text>
+        <text x="60" y="58" text-anchor="middle" font-size="24" font-weight="800" fill="white">40.0</text>
+        <text x="60" y="78" text-anchor="middle" font-size="12" font-weight="700" fill="#DC2626">F</text>
       </svg>
     </div>
     
     <div style="text-align:left">
-      <span class="badge" style="background:#D97706">Fair</span><br><br>
-      <span class="readiness-badge" style="background:#D97706">Ready with Moderate Cleaning</span>
+      <span class="badge" style="background:#DC2626">Poor</span><br><br>
+      <span class="readiness-badge" style="background:#DC2626">Not Recommended</span>
     </div>
   </div>
   <div class="hero-meta">
-    <div>Assessment Date: 2026-08-05 01:46:57</div>
+    <div>Assessment Date: 2026-08-05 01:35:14</div>
     <div>Engine Version: Phase 1</div>
-    <div>Processing Time: 0.68s</div>
-    <div>Rows Analyzed: 533</div>
-    <div>Columns Analyzed: 30</div>
+    <div>Processing Time: 0.05s</div>
+    <div>Rows Analyzed: 7</div>
+    <div>Columns Analyzed: 4</div>
     <div>Business Rules Executed: 8</div>
   </div>
 </div>
@@ -123,15 +123,15 @@ table.striped tr:hover td { background: #EFF6FF; }
 
   <div class="card" id="exec-summary">
     <h2>Executive Summary</h2>
-    <p class="section-intro">This dataset requires moderate remediation before it should be relied on for reporting. Overall Data Quality Score is 55.8 (Fair), based on 8 automated business rule(s), of which 3 passed without exception. 4 finding(s) require attention before this data is used for downstream analytics or decision-making; see Priority Remediation Actions below.</p>
+    <p class="section-intro">This dataset carries significant quality risk and is not recommended for use until remediated. Overall Data Quality Score is 40.0 (Poor), based on 8 automated business rule(s), of which 3 passed without exception. 6 finding(s) require attention before this data is used for downstream analytics or decision-making; see Priority Remediation Actions below.</p>
     <div class="two-col">
       <div>
         <h4 class="findings-critical">Critical Findings</h4>
-        <ul><li>Missing Values: 19 column(s) affected, 4357 issue(s) found</li><li>Duplicates: 1 column(s) affected, 5 issue(s) found</li><li>Validity: 3 column(s) affected, 542 issue(s) found</li><li>PII detected in 12 column(s) -- masking required before sharing</li></ul>
+        <ul><li>Missing Values: 3 column(s) affected, 3 issue(s) found</li><li>Outliers: 1 column(s) affected, 2 issue(s) found</li><li>Consistency: 1 column(s) affected, 1 issue(s) found</li><li>Validity: 1 column(s) affected, 2 issue(s) found</li><li>Freshness: 1 column(s) affected, 1 issue(s) found</li><li>PII detected in 1 column(s) -- masking required before sharing</li></ul>
       </div>
       <div>
         <h4 class="findings-positive">Positive Findings</h4>
-        <ul><li>Type Mismatch: no issues found</li><li>Schema Quality: no issues found</li><li>Freshness: no issues found</li></ul>
+        <ul><li>Duplicates: no issues found</li><li>Type Mismatch: no issues found</li><li>Schema Quality: no issues found</li></ul>
       </div>
     </div>
   </div>
@@ -147,16 +147,16 @@ table.striped tr:hover td { background: #EFF6FF; }
     <div class="kpi-card">
       <div class="kpi-icon" style="background:#DC262622;color:#DC2626">&#128203;</div>
       <div class="kpi-label">Completeness</div>
-      <div class="kpi-score" style="color:#DC2626">37</div>
-      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:36.67%;background:#DC2626"></div></div>
+      <div class="kpi-score" style="color:#DC2626">25</div>
+      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:25.0%;background:#DC2626"></div></div>
       <div class="kpi-meta">Weight 20% &middot; Assessed</div>
     </div>
     
     <div class="kpi-card">
       <div class="kpi-icon" style="background:#DC262622;color:#DC2626">&#9989;</div>
       <div class="kpi-label">Validity</div>
-      <div class="kpi-score" style="color:#DC2626">40</div>
-      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:40.0%;background:#DC2626"></div></div>
+      <div class="kpi-score" style="color:#DC2626">0</div>
+      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:0.0%;background:#DC2626"></div></div>
       <div class="kpi-meta">Weight 20% &middot; Assessed</div>
     </div>
     
@@ -169,18 +169,18 @@ table.striped tr:hover td { background: #EFF6FF; }
     </div>
     
     <div class="kpi-card">
-      <div class="kpi-icon" style="background:#65A30D22;color:#65A30D">&#9878;</div>
+      <div class="kpi-icon" style="background:#DC262622;color:#DC2626">&#9878;</div>
       <div class="kpi-label">Consistency</div>
-      <div class="kpi-score" style="color:#65A30D">85</div>
-      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:84.62%;background:#65A30D"></div></div>
+      <div class="kpi-score" style="color:#DC2626">0</div>
+      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:0.0%;background:#DC2626"></div></div>
       <div class="kpi-meta">Weight 15% &middot; Assessed</div>
     </div>
     
     <div class="kpi-card">
-      <div class="kpi-icon" style="background:#DC262622;color:#DC2626">&#128273;</div>
+      <div class="kpi-icon" style="background:#05966922;color:#059669">&#128273;</div>
       <div class="kpi-label">Uniqueness</div>
-      <div class="kpi-score" style="color:#DC2626">0</div>
-      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:0.0%;background:#DC2626"></div></div>
+      <div class="kpi-score" style="color:#059669">100</div>
+      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:100.0%;background:#059669"></div></div>
       <div class="kpi-meta">Weight 10% &middot; Assessed</div>
     </div>
     
@@ -203,9 +203,9 @@ table.striped tr:hover td { background: #EFF6FF; }
     <div class="kpi-card">
       <div class="kpi-icon" style="background:#DC262622;color:#DC2626">&#8987;</div>
       <div class="kpi-label">Freshness</div>
-      <div class="kpi-score" style="color:#DC2626">N/A</div>
-      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:0%;background:#DC2626"></div></div>
-      <div class="kpi-meta">Weight 5% &middot; Not Scorable</div>
+      <div class="kpi-score" style="color:#DC2626">0</div>
+      <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:0.0%;background:#DC2626"></div></div>
+      <div class="kpi-meta">Weight 5% &middot; Assessed</div>
     </div>
     </div>
   </div>
@@ -224,10 +224,10 @@ table.striped tr:hover td { background: #EFF6FF; }
       <div class="two-col" style="margin-bottom:18px">
         
     <div class="stat-card">
-      <div class="stat-card-icon" style="background:#DC26261A;color:#DC2626">&#128209;</div>
+      <div class="stat-card-icon" style="background:#0596691A;color:#059669">&#128209;</div>
       <div>
-        <div class="stat-card-num">5</div>
-        <div class="stat-card-label">Exact duplicate records detected</div>
+        <div class="stat-card-num">0</div>
+        <div class="stat-card-label">No exact duplicate records found</div>
       </div>
     </div>
     
@@ -258,112 +258,14 @@ table.striped tr:hover td { background: #EFF6FF; }
         <tr><th>Column</th><th>Detected Role</th><th>Confidence</th><th>Evidence</th></tr>
         
         <tr>
-          <td><b>Customer No.</b> </td>
+          <td><b>City</b> </td>
           <td><span class="role-pill">Business Key / Identifier</span></td>
           <td>&mdash;</td>
           <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
         </tr>
         
         <tr>
-          <td><b>Add. Code</b> </td>
-          <td><span class="role-pill">Business Key / Identifier</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Post Code</b> </td>
-          <td><span class="role-pill">Business Key / Identifier</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Sales Invoices/Credits</b> </td>
-          <td><span class="role-pill">Business Key / Identifier</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Ship Address VAT Number</b> </td>
-          <td><span class="role-pill">Business Key / Identifier</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Customer VAT Number</b> </td>
-          <td><span class="role-pill">Business Key / Identifier</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Company Reg No.</b> </td>
-          <td><span class="role-pill">Business Key / Identifier</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Address Line 1</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Address Line 2</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Address Line 3</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Telephones Landline</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Fax</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Toll Free</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Other</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Mobile</b> </td>
-          <td><span class="role-pill">Sensitive (PII)</span></td>
-          <td>&mdash;</td>
-          <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
-        </tr>
-        
-        <tr>
-          <td><b>Email Addresses Generic</b> </td>
+          <td><b>Phone</b> </td>
           <td><span class="role-pill">Sensitive (PII)</span></td>
           <td>&mdash;</td>
           <td class="evidence-cell">Role inferred from name, dtype and cardinality</td>
@@ -378,9 +280,9 @@ table.striped tr:hover td { background: #EFF6FF; }
           <h2>Sensitive Data &amp; Privacy Risk <span style="font-weight:400;font-size:12.5px;color:#64748B">(reported separately -- never part of the score above)</span></h2>
           <div class="two-col">
             <div>
-              <span class="badge" style="background:#DC2626">HIGH</span>
-              <p style="margin-top:12px">Columns with sensitive data: <b>12 / 30</b></p>
-              <p>Types found: ADDRESS, CARD, CNIC, EMAIL, MOBILE, PHONE</p>
+              <span class="badge" style="background:#D97706">MEDIUM</span>
+              <p style="margin-top:12px">Columns with sensitive data: <b>1 / 4</b></p>
+              <p>Types found: MOBILE</p>
             </div>
             <div class="chart-box" style="max-width:220px"><canvas id="prChart"></canvas></div>
           </div>
@@ -389,18 +291,18 @@ table.striped tr:hover td { background: #EFF6FF; }
 
   <div class="card">
     <h2>Dataset Profile</h2>
-    <p><b>Header Row:</b> 3 &middot; <b>Business Rules Executed:</b> 8</p>
+    <p><b>Header Row:</b> 0 &middot; <b>Business Rules Executed:</b> 8</p>
     <h4>Column Classification</h4>
-    <div class="kpi-grid"><div class="kpi-card"><div class="kpi-label">Measurement</div><div class="kpi-score">2</div></div><div class="kpi-card"><div class="kpi-label">Business Key / Identifier</div><div class="kpi-score">7</div></div><div class="kpi-card"><div class="kpi-label">Sensitive (PII)</div><div class="kpi-score">9</div></div><div class="kpi-card"><div class="kpi-label">Free Text</div><div class="kpi-score">6</div></div><div class="kpi-card"><div class="kpi-label">Categorical</div><div class="kpi-score">6</div></div><div class="kpi-card"><div class="kpi-label">Date</div><div class="kpi-score">0</div></div></div>
+    <div class="kpi-grid"><div class="kpi-card"><div class="kpi-label">Measurement</div><div class="kpi-score">1</div></div><div class="kpi-card"><div class="kpi-label">Business Key / Identifier</div><div class="kpi-score">1</div></div><div class="kpi-card"><div class="kpi-label">Sensitive (PII)</div><div class="kpi-score">1</div></div><div class="kpi-card"><div class="kpi-label">Free Text</div><div class="kpi-score">0</div></div><div class="kpi-card"><div class="kpi-label">Categorical</div><div class="kpi-score">0</div></div><div class="kpi-card"><div class="kpi-label">Date</div><div class="kpi-score">1</div></div></div>
   </div>
 
   <div class="card">
     <h2>Sensitive Data &amp; Standardization Summary</h2>
     <div class="two-col">
       <div>
-        <p><b>Sensitive (PII) columns:</b> 12 / 30</p>
-        <p><b>Rows with sensitive data:</b> 506</p>
-        <p><b>Types found:</b> ADDRESS, CARD, CNIC, EMAIL, MOBILE, PHONE</p>
+        <p><b>Sensitive (PII) columns:</b> 1 / 4</p>
+        <p><b>Rows with sensitive data:</b> 6</p>
+        <p><b>Types found:</b> MOBILE</p>
       </div>
       <div>
         <p><b>Columns standardized:</b> 0</p>
@@ -421,16 +323,16 @@ table.striped tr:hover td { background: #EFF6FF; }
       <td><a href="#check-missing_values"><b>Completeness Assessment</b></a></td>
       <td><span class="badge" style="background:#DC2626">Failed</span></td>
       <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>4357</td>
+      <td>3</td>
       <td>May produce inaccurate analytics and unreliable reporting.</td>
       <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
     </tr>
     
     <tr>
       <td><a href="#check-duplicates"><b>Duplicate Record Assessment</b></a></td>
-      <td><span class="badge" style="background:#DC2626">Failed</span></td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>5</td>
+      <td><span class="badge" style="background:#059669">Passed</span></td>
+      <td><span class="badge" style="background:#059669">None</span></td>
+      <td>0</td>
       <td>Can create duplicate customers/orders and inflate revenue or count metrics.</td>
       <td>Add a uniqueness constraint on the business key at the source system.</td>
     </tr>
@@ -446,9 +348,9 @@ table.striped tr:hover td { background: #EFF6FF; }
     
     <tr>
       <td><a href="#check-outliers"><b>Outlier Risk Assessment</b></a></td>
-      <td><span class="badge" style="background:#D97706">Warning</span></td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>197</td>
+      <td><span class="badge" style="background:#DC2626">Failed</span></td>
+      <td><span class="badge" style="background:#DC2626">Critical</span></td>
+      <td>2</td>
       <td>May distort averages, totals, and any ML model trained on this data.</td>
       <td>Manually review flagged values before using this column in analysis or ML.</td>
     </tr>
@@ -464,9 +366,9 @@ table.striped tr:hover td { background: #EFF6FF; }
     
     <tr>
       <td><a href="#check-consistency"><b>Value Consistency Assessment</b></a></td>
-      <td><span class="badge" style="background:#D97706">Warning</span></td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>4</td>
+      <td><span class="badge" style="background:#DC2626">Failed</span></td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>1</td>
       <td>Grouping and aggregation become unreliable (e.g. 'Paid' vs 'paid' split apart).</td>
       <td>Standardize values at entry (dropdowns/lookups instead of free text).</td>
     </tr>
@@ -475,16 +377,16 @@ table.striped tr:hover td { background: #EFF6FF; }
       <td><a href="#check-validity"><b>Validity & Logic Assessment</b></a></td>
       <td><span class="badge" style="background:#DC2626">Failed</span></td>
       <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>542</td>
+      <td>2</td>
       <td>Values that look present may still be unusable or logically wrong.</td>
       <td>Fix values that fail format/logic rules at the source before further use.</td>
     </tr>
     
     <tr>
       <td><a href="#check-freshness"><b>Data Freshness Assessment</b></a></td>
-      <td><span class="badge" style="background:#059669">Passed</span></td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>0</td>
+      <td><span class="badge" style="background:#DC2626">Failed</span></td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>1</td>
       <td>Decisions may be based on stale data without anyone noticing.</td>
       <td>Confirm this data is refreshed on the expected schedule.</td>
     </tr>
@@ -499,30 +401,30 @@ table.striped tr:hover td { background: #EFF6FF; }
         <span class="badge" style="background:#DC2626">Critical</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">30</span><span class="stat-label">Rules Executed</span></div>
-        <div><span class="stat-num">19</span><span class="stat-label">Exceptions Raised</span></div>
-        <div><span class="stat-num">4357</span><span class="stat-label">Affected Records</span></div>
+        <div><span class="stat-num">4</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">3</span><span class="stat-label">Exceptions Raised</span></div>
+        <div><span class="stat-num">3</span><span class="stat-label">Affected Records</span></div>
       </div>
-      <p><b>Affected Columns:</b> Address Line 1, Address Line 2, Address Line 3, City, Company Reg No., Customer EORI, Customer VAT Number, Email Addresses Generic, Fax, Mobile</p>
+      <p><b>Affected Columns:</b> City, Phone, Sales</p>
       <p><b>Business Impact:</b> May produce inaccurate analytics and unreliable reporting.</p>
       <p><b>Recommended Remediation:</b> Improve data collection at source; consider a required-field rule for critical columns.</p>
-      <ul class='sample-list'><li><b>Address Line 1</b>: 9 issue(s) </li><li><b>Address Line 2</b>: 154 issue(s) </li><li><b>Address Line 3</b>: 351 issue(s) </li><li><b>City</b>: 31 issue(s) </li><li><b>Post Code</b>: 69 issue(s) </li></ul>
+      <ul class='sample-list'><li><b>City</b>: 1 issue(s) </li><li><b>Sales</b>: 1 issue(s) </li><li><b>Phone</b>: 1 issue(s) </li></ul>
     </details>
     
     <details class="check-card" id="check-duplicates">
       <summary class="check-header">
         <h3>Duplicate Record Assessment</h3>
-        <span class="badge" style="background:#DC2626">Critical</span>
+        <span class="badge" style="background:#059669">None</span>
       </summary>
       <div class="check-stats">
         <div><span class="stat-num">1</span><span class="stat-label">Rules Executed</span></div>
-        <div><span class="stat-num">1</span><span class="stat-label">Exceptions Raised</span></div>
-        <div><span class="stat-num">5</span><span class="stat-label">Affected Records</span></div>
+        <div><span class="stat-num">0</span><span class="stat-label">Exceptions Raised</span></div>
+        <div><span class="stat-num">0</span><span class="stat-label">Affected Records</span></div>
       </div>
       <p><b>Affected Columns:</b> None</p>
       <p><b>Business Impact:</b> Can create duplicate customers/orders and inflate revenue or count metrics.</p>
       <p><b>Recommended Remediation:</b> Add a uniqueness constraint on the business key at the source system.</p>
-      <ul class='sample-list'><li><b>None</b>: 5 issue(s) note=row_indices are 0-based positions in the loaded dataframe (after header confirmation), not Excel row numbers.</li></ul>
+      
     </details>
     
     <details class="check-card" id="check-type_mismatch">
@@ -531,7 +433,7 @@ table.striped tr:hover td { background: #EFF6FF; }
         <span class="badge" style="background:#059669">None</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">30</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">4</span><span class="stat-label">Rules Executed</span></div>
         <div><span class="stat-num">0</span><span class="stat-label">Exceptions Raised</span></div>
         <div><span class="stat-num">0</span><span class="stat-label">Affected Records</span></div>
       </div>
@@ -544,17 +446,17 @@ table.striped tr:hover td { background: #EFF6FF; }
     <details class="check-card" id="check-outliers">
       <summary class="check-header">
         <h3>Outlier Risk Assessment</h3>
-        <span class="badge" style="background:#D97706">Medium</span>
+        <span class="badge" style="background:#DC2626">Critical</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">13</span><span class="stat-label">Rules Executed</span></div>
-        <div><span class="stat-num">2</span><span class="stat-label">Exceptions Raised</span></div>
-        <div><span class="stat-num">197</span><span class="stat-label">Affected Records</span></div>
+        <div><span class="stat-num">2</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">1</span><span class="stat-label">Exceptions Raised</span></div>
+        <div><span class="stat-num">2</span><span class="stat-label">Affected Records</span></div>
       </div>
-      <p><b>Affected Columns:</b> Credit Limit, Overall Credit Limit</p>
+      <p><b>Affected Columns:</b> Sales</p>
       <p><b>Business Impact:</b> May distort averages, totals, and any ML model trained on this data.</p>
       <p><b>Recommended Remediation:</b> Manually review flagged values before using this column in analysis or ML.</p>
-      <ul class='sample-list'><li><b>Credit Limit</b>: 98 issue(s) note=high concentration on one value -- IQR bounds may be unreliable for this distribution</li><li><b>Overall Credit Limit</b>: 99 issue(s) note=high concentration on one value -- IQR bounds may be unreliable for this distribution</li></ul>
+      <ul class='sample-list'><li><b>Sales</b>: 2 issue(s) </li></ul>
     </details>
     
     <details class="check-card" id="check-schema_quality">
@@ -563,7 +465,7 @@ table.striped tr:hover td { background: #EFF6FF; }
         <span class="badge" style="background:#059669">None</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">30</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">4</span><span class="stat-label">Rules Executed</span></div>
         <div><span class="stat-num">0</span><span class="stat-label">Exceptions Raised</span></div>
         <div><span class="stat-num">0</span><span class="stat-label">Affected Records</span></div>
       </div>
@@ -576,17 +478,17 @@ table.striped tr:hover td { background: #EFF6FF; }
     <details class="check-card" id="check-consistency">
       <summary class="check-header">
         <h3>Value Consistency Assessment</h3>
-        <span class="badge" style="background:#D97706">Medium</span>
+        <span class="badge" style="background:#EA580C">High</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">30</span><span class="stat-label">Rules Executed</span></div>
-        <div><span class="stat-num">2</span><span class="stat-label">Exceptions Raised</span></div>
-        <div><span class="stat-num">4</span><span class="stat-label">Affected Records</span></div>
+        <div><span class="stat-num">4</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">1</span><span class="stat-label">Exceptions Raised</span></div>
+        <div><span class="stat-num">1</span><span class="stat-label">Affected Records</span></div>
       </div>
-      <p><b>Affected Columns:</b> Post Code, Sales Invoices/Credits</p>
+      <p><b>Affected Columns:</b> City</p>
       <p><b>Business Impact:</b> Grouping and aggregation become unreliable (e.g. 'Paid' vs 'paid' split apart).</p>
       <p><b>Recommended Remediation:</b> Standardize values at entry (dropdowns/lookups instead of free text).</p>
-      <ul class='sample-list'><li><b>Post Code</b>: 1 issue(s) examples=[{'normalized': 'rg19 4jz', 'canonical': 'RG19 4JZ', 'variants': {'RG19 4JZ': 3, 'RG19 4Jz': 1}}]</li><li><b>Sales Invoices/Credits</b>: 3 issue(s) examples=[{'normalized': 'gb-invoices-210@schneider-electric.com', 'canonical': 'GB-Invoices-210@schneider-electric.com', 'variants': {' GB-Invoices-210@schneider-electric.com': 1, 'GB-Invoices-210@schneider-electric.com': 2}}, {'normalized': 'acsemea_ap_pdfinvoices@honeywell.com', 'canonical': 'ACSEMEA_AP_PDFInvoices@honeywell.com', 'variants': {'ACSEMEA_AP_PDFInvoices@honeywell.com': 1, 'acsemea_ap_pdfinvoices@honeywell.com': 1}}, {'normalized': 'lara.kusiak@kinetikwellbeing.com', 'canonical': ' lara.kusiak@kinetikwellbeing.com', 'variants': {' lara.kusiak@kinetikwellbeing.com': 1, 'lara.kusiak@kinetikwellbeing.com': 1}}]</li></ul>
+      <ul class='sample-list'><li><b>City</b>: 1 issue(s) examples=[{'normalized': 'lahore', 'canonical': 'Lahore', 'variants': {'Lahore': 1, 'lahore': 1}}]</li></ul>
     </details>
     
     <details class="check-card" id="check-validity">
@@ -595,30 +497,30 @@ table.striped tr:hover td { background: #EFF6FF; }
         <span class="badge" style="background:#EA580C">High</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">8</span><span class="stat-label">Rules Executed</span></div>
-        <div><span class="stat-num">3</span><span class="stat-label">Exceptions Raised</span></div>
-        <div><span class="stat-num">542</span><span class="stat-label">Affected Records</span></div>
+        <div><span class="stat-num">5</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">1</span><span class="stat-label">Exceptions Raised</span></div>
+        <div><span class="stat-num">2</span><span class="stat-label">Affected Records</span></div>
       </div>
-      <p><b>Affected Columns:</b> Custom Hold Status, Customer No.,Add. Code, Email Addresses Generic</p>
+      <p><b>Affected Columns:</b> Date</p>
       <p><b>Business Impact:</b> Values that look present may still be unusable or logically wrong.</p>
       <p><b>Recommended Remediation:</b> Fix values that fail format/logic rules at the source before further use.</p>
-      <ul class='sample-list'><li><b>Customer No.,Add. Code</b>: 5 issue(s) </li><li><b>Email Addresses Generic</b>: 4 issue(s) </li><li><b>Custom Hold Status</b>: 533 issue(s) </li></ul>
+      <ul class='sample-list'><li><b>Date</b>: 2 issue(s) rule=invalid_or_implausible_date</li></ul>
     </details>
     
     <details class="check-card" id="check-freshness">
       <summary class="check-header">
         <h3>Data Freshness Assessment</h3>
-        <span class="badge" style="background:#059669">None</span>
+        <span class="badge" style="background:#EA580C">High</span>
       </summary>
       <div class="check-stats">
-        <div><span class="stat-num">30</span><span class="stat-label">Rules Executed</span></div>
-        <div><span class="stat-num">0</span><span class="stat-label">Exceptions Raised</span></div>
-        <div><span class="stat-num">0</span><span class="stat-label">Affected Records</span></div>
+        <div><span class="stat-num">4</span><span class="stat-label">Rules Executed</span></div>
+        <div><span class="stat-num">1</span><span class="stat-label">Exceptions Raised</span></div>
+        <div><span class="stat-num">1</span><span class="stat-label">Affected Records</span></div>
       </div>
-      <p><b>Affected Columns:</b> None</p>
+      <p><b>Affected Columns:</b> Date</p>
       <p><b>Business Impact:</b> Decisions may be based on stale data without anyone noticing.</p>
       <p><b>Recommended Remediation:</b> Confirm this data is refreshed on the expected schedule.</p>
-      
+      <ul class='sample-list'><li><b>Date</b>: 1 issue(s) </li></ul>
     </details>
     
   </div>
@@ -629,273 +531,39 @@ table.striped tr:hover td { background: #EFF6FF; }
       <tr><th>Column</th><th>Role</th><th>Score</th><th>Issues</th><th>Severity</th><th>Recommendation</th></tr>
       
     <tr>
-      <td>Sales Invoices/Credits</td>
-      <td><span class="role-pill">Business Key / Identifier</span></td>
-      <td>60</td>
-      <td>121</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Standardize values at entry (dropdowns/lookups instead of free text).</td>
-    </tr>
-    
-    <tr>
-      <td>Post Code</td>
+      <td>City</td>
       <td><span class="role-pill">Business Key / Identifier</span></td>
       <td>67</td>
-      <td>70</td>
+      <td>2</td>
       <td><span class="badge" style="background:#EA580C">High</span></td>
       <td>Standardize values at entry (dropdowns/lookups instead of free text).</td>
     </tr>
     
     <tr>
-      <td>Email Addresses Generic</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>71</td>
-      <td>150</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Review flagged values.</td>
-    </tr>
-    
-    <tr>
-      <td>Address Line 1</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>80</td>
-      <td>9</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Address Line 2</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>80</td>
-      <td>154</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>City</td>
-      <td><span class="role-pill">Free Text</span></td>
-      <td>80</td>
-      <td>31</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>POs/Sales Quotes</td>
-      <td><span class="role-pill">Free Text</span></td>
-      <td>80</td>
-      <td>219</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Remittances, Order Acks & Shipments</td>
-      <td><span class="role-pill">Free Text</span></td>
-      <td>80</td>
-      <td>223</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Statements</td>
-      <td><span class="role-pill">Free Text</span></td>
-      <td>80</td>
-      <td>124</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Ship Address VAT Number</td>
-      <td><span class="role-pill">Business Key / Identifier</span></td>
-      <td>80</td>
-      <td>465</td>
-      <td><span class="badge" style="background:#EA580C">High</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Address Line 3</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>83</td>
-      <td>351</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Telephones Landline</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>83</td>
-      <td>171</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Fax</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>83</td>
-      <td>439</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Toll Free</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>83</td>
-      <td>488</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Other</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>83</td>
-      <td>447</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Mobile</td>
-      <td><span class="role-pill">Sensitive (PII)</span></td>
-      <td>83</td>
-      <td>441</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Customer VAT Number</td>
-      <td><span class="role-pill">Business Key / Identifier</span></td>
-      <td>83</td>
-      <td>160</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Customer EORI</td>
-      <td><span class="role-pill">Free Text</span></td>
-      <td>83</td>
-      <td>156</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Company Reg No.</td>
-      <td><span class="role-pill">Business Key / Identifier</span></td>
-      <td>83</td>
-      <td>146</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>Credit Limit</td>
+      <td>Sales</td>
       <td><span class="role-pill">Measurement</span></td>
+      <td>67</td>
+      <td>3</td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
+    </tr>
+    
+    <tr>
+      <td>Date</td>
+      <td><span class="role-pill">Date</span></td>
+      <td>67</td>
+      <td>3</td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>Confirm this data is refreshed on the expected schedule.</td>
+    </tr>
+    
+    <tr>
+      <td>Phone</td>
+      <td><span class="role-pill">Sensitive (PII)</span></td>
       <td>83</td>
-      <td>98</td>
+      <td>1</td>
       <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Manually review flagged values before using this column in analysis or ML.</td>
-    </tr>
-    
-    <tr>
-      <td>Overall Credit Limit</td>
-      <td><span class="role-pill">Measurement</span></td>
-      <td>83</td>
-      <td>99</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Manually review flagged values before using this column in analysis or ML.</td>
-    </tr>
-    
-    <tr>
-      <td>Custom Hold Status</td>
-      <td><span class="role-pill">Categorical</span></td>
-      <td>83</td>
-      <td>533</td>
-      <td><span class="badge" style="background:#D97706">Medium</span></td>
-      <td>Review flagged values.</td>
-    </tr>
-    
-    <tr>
-      <td>Customer No.</td>
-      <td><span class="role-pill">Business Key / Identifier</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>Company Name</td>
-      <td><span class="role-pill">Free Text</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>Default?</td>
-      <td><span class="role-pill">Categorical</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>Add. Code</td>
-      <td><span class="role-pill">Business Key / Identifier</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>Country</td>
-      <td><span class="role-pill">Categorical</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>External Rep</td>
-      <td><span class="role-pill">Categorical</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>Internal Rep</td>
-      <td><span class="role-pill">Categorical</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
-    </tr>
-    
-    <tr>
-      <td>Pay Terms</td>
-      <td><span class="role-pill">Categorical</span></td>
-      <td>100</td>
-      <td>0</td>
-      <td><span class="badge" style="background:#059669">None</span></td>
-      <td>No action needed.</td>
+      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
     </tr>
     
     </table>
@@ -909,7 +577,7 @@ table.striped tr:hover td { background: #EFF6FF; }
     <tr>
       <td>1</td>
       <td>Missing Values</td>
-      <td>Address Line 1</td>
+      <td>City</td>
       <td><span class="badge" style="background:#DC2626">Critical</span></td>
       <td>May produce inaccurate analytics and unreliable reporting.</td>
       <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
@@ -918,7 +586,7 @@ table.striped tr:hover td { background: #EFF6FF; }
     <tr>
       <td>2</td>
       <td>Missing Values</td>
-      <td>Address Line 2</td>
+      <td>Phone</td>
       <td><span class="badge" style="background:#DC2626">Critical</span></td>
       <td>May produce inaccurate analytics and unreliable reporting.</td>
       <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
@@ -927,7 +595,7 @@ table.striped tr:hover td { background: #EFF6FF; }
     <tr>
       <td>3</td>
       <td>Missing Values</td>
-      <td>Address Line 3</td>
+      <td>Sales</td>
       <td><span class="badge" style="background:#DC2626">Critical</span></td>
       <td>May produce inaccurate analytics and unreliable reporting.</td>
       <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
@@ -935,65 +603,38 @@ table.striped tr:hover td { background: #EFF6FF; }
     
     <tr>
       <td>4</td>
-      <td>Missing Values</td>
-      <td>City</td>
+      <td>Outliers</td>
+      <td>Sales</td>
       <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
+      <td>May distort averages, totals, and any ML model trained on this data.</td>
+      <td>Manually review flagged values before using this column in analysis or ML.</td>
     </tr>
     
     <tr>
       <td>5</td>
-      <td>Missing Values</td>
-      <td>Company Reg No.</td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
+      <td>Consistency</td>
+      <td>City</td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>Grouping and aggregation become unreliable (e.g. 'Paid' vs 'paid' split apart).</td>
+      <td>Standardize values at entry (dropdowns/lookups instead of free text).</td>
     </tr>
     
     <tr>
       <td>6</td>
-      <td>Missing Values</td>
-      <td>Customer EORI</td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
+      <td>Validity</td>
+      <td>Date</td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>Values that look present may still be unusable or logically wrong.</td>
+      <td>Fix values that fail format/logic rules at the source before further use.</td>
     </tr>
     
     <tr>
       <td>7</td>
-      <td>Missing Values</td>
-      <td>Customer VAT Number</td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>8</td>
-      <td>Missing Values</td>
-      <td>Email Addresses Generic</td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>9</td>
-      <td>Missing Values</td>
-      <td>Fax</td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
-    </tr>
-    
-    <tr>
-      <td>10</td>
-      <td>Missing Values</td>
-      <td>Mobile</td>
-      <td><span class="badge" style="background:#DC2626">Critical</span></td>
-      <td>May produce inaccurate analytics and unreliable reporting.</td>
-      <td>Improve data collection at source; consider a required-field rule for critical columns.</td>
+      <td>Freshness</td>
+      <td>Date</td>
+      <td><span class="badge" style="background:#EA580C">High</span></td>
+      <td>Decisions may be based on stale data without anyone noticing.</td>
+      <td>Confirm this data is refreshed on the expected schedule.</td>
     </tr>
     
     </table>
@@ -1011,7 +652,7 @@ table.striped tr:hover td { background: #EFF6FF; }
     confidence threshold -- never from column name alone.</p>
   </div>
 
-  <div class="footer-note">Generated by the Data Quality Engine &middot; Phase 1 &middot; 2026-08-05 01:46:57</div>
+  <div class="footer-note">Generated by the Data Quality Engine &middot; Phase 1 &middot; 2026-08-05 01:35:14</div>
 
 </div>
 
@@ -1022,7 +663,7 @@ new Chart(document.getElementById('dimChart'), {
     labels: ['Completeness', 'Validity', 'Type Reliability', 'Consistency', 'Uniqueness', 'Schema Quality', 'Outlier Risk', 'Freshness'],
     datasets: [{
       label: 'Score',
-      data: [36.67, 40.0, 100.0, 84.62, 0.0, 100.0, 0.0, 0],
+      data: [25.0, 0.0, 100.0, 0.0, 100.0, 100.0, 0.0, 0.0],
       backgroundColor: 'rgba(37,99,235,0.15)',
       borderColor: '#1D4ED8',
       pointBackgroundColor: '#1D4ED8',
@@ -1039,8 +680,8 @@ new Chart(document.getElementById('dimChart'), {
 new Chart(document.getElementById('sevChart'), {
   type: 'doughnut',
   data: {
-    labels: ['Critical', 'High', 'Medium', 'None'],
-    datasets: [{ data: [2, 1, 2, 3], backgroundColor: ['#DC2626', '#EA580C', '#D97706', '#059669'], borderWidth: 0 }]
+    labels: ['Critical', 'High', 'None'],
+    datasets: [{ data: [2, 3, 3], backgroundColor: ['#DC2626', '#EA580C', '#059669'], borderWidth: 0 }]
   },
   options: {
     responsive: true,
@@ -1055,7 +696,7 @@ new Chart(document.getElementById('sevChart'), {
           type: 'doughnut',
           data: {
             labels: ['Sensitive Columns', 'Clean Columns'],
-            datasets: [{ data: [12, 18], backgroundColor: ['#DC2626', '#E2E8F0'], borderWidth: 0 }]
+            datasets: [{ data: [1, 3], backgroundColor: ['#D97706', '#E2E8F0'], borderWidth: 0 }]
           },
           options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }, cutout: '65%' }
         });

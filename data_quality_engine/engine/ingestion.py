@@ -234,6 +234,85 @@ def _read_excel_raw(
     ) from last_exc
 
 
+def get_sheet_visibility(filepath: str | Path) -> dict[str, bool]:
+    """
+    Best-effort sheet_name -> is_visible map for an Excel workbook.
+
+    FIX (ISS-01 / ISS-02, Data Quality Engine Functional Validation & Report
+    Audit): the report pipeline used to default to ``list(sheets.keys())[0]``
+    with no regard for whether that first sheet was hidden or empty (e.g.
+    Sage X3 exports ship a hidden ``Sage.X3.ReservedSheet`` config sheet as
+    physical sheet 0). Callers should use this to skip hidden/veryHidden
+    sheets when auto-selecting a default sheet.
+
+    Returns an empty dict (meaning "visibility unknown, treat everything as
+    visible") when the workbook kind doesn't expose this cheaply (.csv,
+    calamine-only reads, or any read failure) -- callers must treat a
+    missing key as visible=True, never as a reason to fail.
+    """
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+    visibility: dict[str, bool] = {}
+
+    if suffix in _EXCEL_OPENPYXL:
+        try:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            for ws in wb.worksheets:
+                visibility[ws.title] = ws.sheet_state == "visible"
+            wb.close()
+            return visibility
+        except Exception:
+            # openpyxl can't parse some Sage X3 stylesheets (see
+            # _read_excel_via_calamine_direct) -- fall through to the
+            # zero-dependency XML peek below rather than give up.
+            try:
+                return _sheet_visibility_from_xml(path)
+            except Exception:
+                return {}
+
+    if suffix in _EXCEL_XLRD:
+        try:
+            import xlrd
+
+            book = xlrd.open_workbook(str(path), on_demand=True)
+            for name in book.sheet_names():
+                # xlrd: 0 visible, 1 hidden, 2 very hidden
+                visibility[name] = book.sheet_visibility(name) == 0 if hasattr(
+                    book, "sheet_visibility"
+                ) else True
+            return visibility
+        except Exception:
+            return {}
+
+    return {}
+
+
+def _sheet_visibility_from_xml(path: Path) -> dict[str, bool]:
+    """
+    Zero-dependency fallback: read sheet visibility straight out of
+    ``xl/workbook.xml`` inside the .xlsx zip. Used when openpyxl itself
+    cannot open the workbook (broken stylesheets) but we still want to
+    avoid defaulting to a hidden sheet.
+    """
+    import zipfile
+
+    visibility: dict[str, bool] = {}
+    with zipfile.ZipFile(path) as z:
+        xml = z.read("xl/workbook.xml").decode("utf-8", errors="ignore")
+    for m in re.finditer(r"<sheet\b[^>]*/>", xml):
+        tag = m.group(0)
+        name_m = re.search(r'name="([^"]*)"', tag)
+        if not name_m:
+            continue
+        name = name_m.group(1)
+        state_m = re.search(r'state="([^"]*)"', tag)
+        state = state_m.group(1) if state_m else "visible"
+        visibility[name] = state == "visible"
+    return visibility
+
+
 def read_excel_file(filepath: str | Path) -> dict[str, pd.DataFrame]:
     """
     Reads all sheets (or a single CSV as one sheet) with NO header assumption

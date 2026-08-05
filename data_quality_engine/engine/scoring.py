@@ -64,6 +64,29 @@ def _is_role_skip(result: CheckResult) -> bool:
     return isinstance(reason, str) and reason.startswith("skipped_")
 
 
+def _result_quality(result: CheckResult) -> float:
+    """
+    Per-result quality in [0.0, 1.0] used to build a dimension's score.
+
+    Prefers the graded ``quality_ratio`` (fraction of rows/values that are
+    clean) when a check provides one -- e.g. missing_values, duplicates,
+    outliers, all of which can partially fail a column. Without this, a
+    column missing 1/533 values and a column missing 500/533 values both
+    collapsed to status="failed" and were scored identically (0), which is
+    what previously made Completeness/Uniqueness/Outlier Risk crash to
+    near-0 scores on datasets that were only partially affected.
+
+    Falls back to the original binary status (1.0 passed / 0.0 failed) for
+    checks that don't set quality_ratio -- these are dimensions that are
+    inherently binary at the column level (schema_quality, freshness,
+    type_mismatch, consistency, validity rule checks), so behaviour there is
+    unchanged.
+    """
+    if result.quality_ratio is not None:
+        return max(0.0, min(1.0, float(result.quality_ratio)))
+    return 1.0 if result.status == "passed" else 0.0
+
+
 def _dimension_sub_score(results: list[CheckResult]) -> dict[str, Any]:
     errored = sum(1 for r in results if r.status == "error")
     skipped = sum(1 for r in results if r.status != "error" and _is_role_skip(r))
@@ -76,10 +99,16 @@ def _dimension_sub_score(results: list[CheckResult]) -> dict[str, Any]:
             "skipped": skipped,
             "errored": errored,
         }
+    # "passed" stays a count of status=="passed" results (reported as-is,
+    # e.g. in the Column Quality Matrix / "Columns with Issues" counts).
+    # The score itself is the average graded quality across assessed
+    # results, which equals the old binary passed/total whenever no result
+    # sets quality_ratio (see _result_quality).
     passed = sum(1 for r in assessed if r.status == "passed")
     total = len(assessed)
+    avg_quality = sum(_result_quality(r) for r in assessed) / total
     return {
-        "score": round(100.0 * passed / total, 2),
+        "score": round(100.0 * avg_quality, 2),
         "passed": passed,
         "total": total,
         "skipped": skipped,

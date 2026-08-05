@@ -39,12 +39,18 @@ def check_missing_values(df: pd.DataFrame) -> list[CheckResult]:
             issues = len(missing_idx)
             pct = (issues / total_rows * 100.0) if total_rows else 0.0
             status = "passed" if issues == 0 else "failed"
+            # Graded ratio: fraction of rows that ARE filled in this column.
+            # A column missing 9/533 values (98.3% complete) must not score
+            # the same as a column missing 500/533 (6.2% complete) -- both
+            # were previously collapsed to status="failed" -> 0 in scoring.
+            quality_ratio = 1.0 - (issues / total_rows) if total_rows else 1.0
             results.append(
                 CheckResult(
                     check_name="missing_values",
                     status=status,
                     column=str(col),
                     issues_found=issues,
+                    quality_ratio=round(quality_ratio, 6),
                     details={
                         "missing_count": issues,
                         "missing_pct": round(pct, 4),

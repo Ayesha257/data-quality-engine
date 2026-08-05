@@ -153,11 +153,18 @@ def _detect_iqr(series: pd.Series, col_name: str | None) -> CheckResult:
     # Additive caveat only — does not change issues_found / status
     details.update(_dominant_value_caveat(valid))
 
+    # Graded ratio: fraction of numeric values that are NOT flagged as
+    # outliers. A column with 18% of values outside IQR bounds must not
+    # score identically to a column that's 100% outliers -- both previously
+    # collapsed to a single failed=0 result in scoring.
+    quality_ratio = 1.0 - (issues / numeric_count) if numeric_count else 1.0
+
     return CheckResult(
         check_name="outliers",
         status="passed" if issues == 0 else "failed",
         column=col_name,
         issues_found=issues,
+        quality_ratio=round(quality_ratio, 6),
         details=details,
         dimension="validity",
     )
@@ -221,12 +228,14 @@ def _detect_knn(series: pd.Series, col_name: str | None) -> CheckResult:
     outlier_vals = [float(valid.loc[i]) for i in outlier_idx]
     issues = len(outlier_idx)
     outlier_pct = round((issues / numeric_count) * 100.0, 4) if numeric_count else 0.0
+    quality_ratio = 1.0 - (issues / numeric_count) if numeric_count else 1.0
 
     return CheckResult(
         check_name="outliers",
         status="passed" if issues == 0 else "failed",
         column=col_name,
         issues_found=issues,
+        quality_ratio=round(quality_ratio, 6),
         details={
             "method": "knn",
             "outlier_count": issues,

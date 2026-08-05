@@ -456,6 +456,12 @@ def check_duplicates(
         set_idx = work.index[dup_all].tolist()
         issues = len(dup_idx)
         status = "passed" if issues == 0 else "failed"
+        total_rows = len(df)
+        # Graded ratio: fraction of rows that are NOT a duplicate extra.
+        # 5 duplicate rows out of 533 (99.1% unique) must not score the same
+        # as e.g. 400/533 duplicated -- both previously collapsed this whole
+        # check to a single failed=0 result in scoring.
+        quality_ratio = 1.0 - (issues / total_rows) if total_rows else 1.0
 
         groups = _duplicate_groups(work, dup_all, subset_list)
 
@@ -466,6 +472,7 @@ def check_duplicates(
                 status=status,
                 column=",".join(subset_list) if subset_list else None,
                 issues_found=issues,
+                quality_ratio=round(quality_ratio, 6),
                 details={
                     "duplicate_count": issues,
                     "duplicate_set_rows": len(set_idx),

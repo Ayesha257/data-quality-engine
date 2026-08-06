@@ -1,0 +1,37 @@
+# Template for a per-client override.
+#
+# To onboard a new client:
+#   1. Copy this whole "example_client" folder to config/clients/<new_client_id>/
+#   2. Edit the values below (only include keys you want to CHANGE —
+#      anything you omit falls back to config/base_rules.yaml)
+#   3. Nothing else needs to change. RuleResolver.resolve("<new_client_id>")
+#      will pick this file up automatically.
+#
+# To later change a client's rules without breaking old runs' audit trail,
+# add a new file "rules_v2.yaml" in the same folder instead of editing
+# this one — RuleResolver always uses the highest version number found.
+
+client_id: example_client
+version: v1
+
+thresholds:
+  # Example: this client's data is known to be looser than average, so
+  # relax the fuzzy-match threshold a little (lower = more lenient).
+  fuzzy_threshold: 85
+  # Example: this client wants a stricter pass bar before a run is
+  # considered "acceptable without review".
+  min_acceptable_overall_score: 70.0
+
+business_rules:
+  - rule_id: no_negative_amounts
+    description: "Monetary columns should not contain negative values unless explicitly a refund/credit column."
+    condition: "value < 0 for columns matching '*Amt*' or '*Price*' or '*Cost*'"
+    severity: medium
+  - rule_id: id_columns_unique
+    description: "Columns that look like identifiers (e.g. '*Code', '*No.', '*ID') should have unique values."
+    condition: "duplicate rate > 0 for inferred identifier columns"
+    severity: high
+  - rule_id: example_client_region_required
+    description: "Every row must have a non-empty 'Region' value for this client."
+    condition: "missing rate > 0 for column 'Region'"
+    severity: high

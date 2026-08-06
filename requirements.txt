@@ -37,3 +37,11 @@ XlsxWriter>=3.2
 # Testing / CLI
 pytest>=8.0
 pytest-cov>=5.0
+
+# --- Phase 2: Intelligence Layer (M1 Foundations) ---
+# Database ORM + session management
+SQLAlchemy>=2.0
+# Request/response/config validation shared across DB, rules, and API layers
+pydantic>=2.6
+# Per-client rule files (config/base_rules.yaml, config/clients/<id>/rules_vN.yaml)
+PyYAML>=6.0

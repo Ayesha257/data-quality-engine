@@ -712,7 +712,14 @@ def run_pipeline(
         print(f"Sheet: {sname}")
 
         # Task 1: detect + confirm header
-        detected = detect_header_row(raw_df)
+        try:
+            detected = detect_header_row(raw_df)
+        except ValueError:
+            # Empty / headerless sheet (e.g. a truly blank tab left in the
+            # workbook) -- skip it and keep processing the remaining
+            # sheets rather than aborting the whole file.
+            print("Skipped: empty or no header found")
+            continue
         preview = header_preview(raw_df, detected)
         header_row = confirm_header_row(prompt, detected, preview)
 

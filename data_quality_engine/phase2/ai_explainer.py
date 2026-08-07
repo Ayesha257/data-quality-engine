@@ -32,6 +32,10 @@ from pathlib import Path
 
 import concurrent.futures
 import os
+import random
+import threading
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,11 +46,55 @@ except ImportError:  # pragma: no cover - requests ships with Phase 1's deps
     requests = None  # type: ignore[assignment]
 
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+# NOTE (2026-08): "gemini-2.0-flash" was deprecated by Google on
+# 2026-03-03. gemini-2.5-flash is the current free-tier default as of
+# this writing -- if Google renames/retires it again, set GEMINI_MODEL
+# in your environment/.env rather than editing this file.
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 DEFAULT_TIMEOUT_SECONDS = float(os.environ.get("GEMINI_TIMEOUT_SECONDS", "20"))
 _API_URL_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
+
+# Free-tier Gemini Flash models allow roughly 10-15 requests/minute
+# (Google changes this without much notice -- see GEMINI_RPM_LIMIT below
+# to adjust without touching code). Defaulting to 8 leaves headroom for
+# whatever the current real limit is.
+DEFAULT_RPM_LIMIT = int(os.environ.get("GEMINI_RPM_LIMIT", "8"))
+DEFAULT_MAX_RETRIES = int(os.environ.get("GEMINI_MAX_RETRIES", "3"))
+
+
+class _RateLimiter:
+    """
+    Thread-safe sliding-window rate limiter shared by every Gemini call in
+    this process. `generate_explanations()` fires several checks in
+    parallel via a thread pool -- without this, that burst alone can
+    exceed the free tier's per-minute quota on anything but a tiny file.
+
+    acquire() blocks the calling thread until a slot is free, rather than
+    raising, so callers never need extra error handling for "too many
+    requests, too fast" -- they just get correctly throttled.
+    """
+
+    def __init__(self, max_per_minute: int):
+        self.max_per_minute = max(1, max_per_minute)
+        self._timestamps: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                while self._timestamps and now - self._timestamps[0] > 60:
+                    self._timestamps.popleft()
+                if len(self._timestamps) < self.max_per_minute:
+                    self._timestamps.append(now)
+                    return
+                wait_for = 60 - (now - self._timestamps[0])
+            time.sleep(max(0.05, wait_for))
+
+
+_rate_limiter = _RateLimiter(DEFAULT_RPM_LIMIT)
 
 
 @dataclass
@@ -67,6 +115,45 @@ class Explanation:
             "ai_available": self.source == "ai",
             "error": self.error,
         }
+
+
+def _pii_summary_to_check_shape(pii_block: dict[str, Any]) -> dict[str, Any]:
+    """
+    Normalize report_data['pii'] (a differently-shaped block than the
+    per-check summaries) into the same shape _summarize_check() produces,
+    so explain_check()/_build_check_prompt()/_fallback_text() all work on
+    it completely unmodified. This is the pattern to follow for adding
+    Inspect coverage to any other non-'checks' report section later
+    (e.g. 'fuzzy', 'privacy_risk') -- write one small adapter like this
+    one, nothing else needs to change.
+
+    Only ever reads generic counts/column-name lists from pii_block, the
+    same as every other summary shape here -- never a raw value.
+    """
+    from data_quality_engine.engine.reporting.report_generator import (
+        BUSINESS_IMPACT,
+        RECOMMENDATION,
+    )
+
+    columns_with_pii = pii_block.get("columns_with_pii", 0)
+    return {
+        "check_name": "pii",
+        "display_name": "Sensitive Data (PII) Assessment",
+        "columns_checked": pii_block.get("total_columns", 0),
+        "columns_with_issues": columns_with_pii,
+        "total_issues_found": pii_block.get("total_rows_with_pii", 0),
+        "severity": "Critical" if columns_with_pii else "None",
+        "affected_columns": pii_block.get("flagged_columns", []),
+        "sample_findings": [
+            {"column": col, "issues_found": None} for col in pii_block.get("flagged_columns", [])[:5]
+        ],
+        "business_impact": BUSINESS_IMPACT.get(
+            "pii", "Privacy and regulatory compliance risk if shared or stored without masking."
+        ),
+        "recommendation": RECOMMENDATION.get(
+            "pii", "Apply masking/encryption before sharing; restrict access to raw values."
+        ),
+    }
 
 
 def get_api_key(api_key: str | None = None) -> str | None:
@@ -133,22 +220,24 @@ def _build_check_prompt(summary: dict[str, Any]) -> str:
     )
 
 
-def _build_overall_prompt(report_data: dict[str, Any]) -> str:
+def _build_overall_prompt(report_data: dict[str, Any], trend_text: str | None = None) -> str:
     sc = report_data.get("score", {})
     ov = report_data.get("overview", {})
     crit = report_data.get("executive_summary", {}).get("critical_findings", [])
     crit_lines = "\n".join(f"- {c}" for c in crit[:8]) or "(none)"
+    trend_line = f"Trend vs. the last run on this file: {trend_text}\n" if trend_text else ""
     return (
         "You are summarizing an automated data quality report for a non-technical "
         "business stakeholder. Do not invent facts -- only use what is given.\n\n"
         f"Dataset size: {ov.get('rows')} rows x {ov.get('columns')} columns\n"
         f"Overall Data Quality Score: {sc.get('overall')} ({sc.get('rating')})\n"
         f"Readiness verdict (already decided by the rule engine): {sc.get('readiness')}\n"
+        f"{trend_line}"
         f"Top findings:\n{crit_lines}\n\n"
         "Respond in EXACTLY three lines, using this exact format, no text "
         "before, after, or between them:\n\n"
         "WHAT'S WRONG: one sentence on overall data status, using the exact "
-        "score given above.\n"
+        "score given above" + (" and mentioning the trend if one was given" if trend_text else "") + ".\n"
         "WHY IT MATTERS: one sentence on the single biggest risk.\n"
         "WHAT TO DO: one short, specific, actionable next step.\n\n"
         "No jargon. No markdown symbols."
@@ -156,9 +245,23 @@ def _build_overall_prompt(report_data: dict[str, Any]) -> str:
 
 
 def _call_gemini(prompt: str, api_key: str, model: str, timeout: float) -> str:
-    """Single Gemini REST call. Raises on any failure -- callers must
-    catch. Kept as a thin, swappable function so a different provider or
-    the official SDK can be dropped in later without touching callers."""
+    """Single Gemini REST call, with rate limiting and retry-with-backoff.
+
+    Kept as a thin, swappable function so a different provider or the
+    official SDK can be dropped in later without touching callers.
+
+    Resilience added here (on top of the original single-shot call):
+      - Waits for a free slot in the shared rate limiter BEFORE sending,
+        so concurrent explain_check() calls from the thread pool don't
+        all land in the same second and blow through the free-tier quota.
+      - On HTTP 429 (rate limited) or 5xx (transient server error),
+        retries with exponential backoff + jitter, honoring the server's
+        Retry-After header when it sends one, instead of failing straight
+        to the fallback explanation on the first hiccup.
+      - Any other error (4xx auth/bad-request, timeout, malformed
+        response) is NOT retried -- retrying those would just waste the
+        remaining quota on a call that can't succeed.
+    """
     if requests is None:
         raise RuntimeError("the 'requests' package is not installed")
 
@@ -167,22 +270,39 @@ def _call_gemini(prompt: str, api_key: str, model: str, timeout: float) -> str:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": 400, "temperature": 0.3},
     }
-    resp = requests.post(
-        url,
-        params={"key": api_key},
-        json=payload,
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    candidates = data.get("candidates") or []
-    if not candidates:
-        raise ValueError("Gemini returned no candidates")
-    parts = (candidates[0].get("content") or {}).get("parts") or []
-    text = "".join(p.get("text", "") for p in parts).strip()
-    if not text:
-        raise ValueError("Gemini returned an empty response")
-    return text
+
+    last_exc: Exception | None = None
+    for attempt in range(DEFAULT_MAX_RETRIES + 1):
+        _rate_limiter.acquire()
+        try:
+            resp = requests.post(url, params={"key": api_key}, json=payload, timeout=timeout)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                retry_after = resp.headers.get("Retry-After")
+                delay = float(retry_after) if retry_after else (2**attempt) + random.uniform(0, 1)
+                last_exc = RuntimeError(f"Gemini returned HTTP {resp.status_code}")
+                if attempt < DEFAULT_MAX_RETRIES:
+                    time.sleep(min(delay, 30))
+                    continue
+                resp.raise_for_status()
+            resp.raise_for_status()
+            data = resp.json()
+            candidates = data.get("candidates") or []
+            if not candidates:
+                raise ValueError("Gemini returned no candidates")
+            parts = (candidates[0].get("content") or {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts).strip()
+            if not text:
+                raise ValueError("Gemini returned an empty response")
+            return text
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            # Transient network issue: worth one retry, not worth exhausting all of them.
+            last_exc = exc
+            if attempt < min(1, DEFAULT_MAX_RETRIES):
+                time.sleep((2**attempt) + random.uniform(0, 1))
+                continue
+            raise
+
+    raise last_exc or RuntimeError("Gemini call failed for an unknown reason")
 
 
 def explain_check(
@@ -211,19 +331,27 @@ def explain_overall(
     api_key: str | None = None,
     model: str = DEFAULT_MODEL,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    trend_text: str | None = None,
 ) -> Explanation:
-    """Explain the report as a whole (executive summary). Never raises."""
+    """Explain the report as a whole (executive summary). Never raises.
+
+    trend_text: optional plain-language score trend (e.g. "improved +5.2
+    points since 2026-08-01") from phase2/history.py. When provided, both
+    the AI prompt and the fallback text reference it, so the executive
+    summary is historically aware, not just a snapshot.
+    """
     key = get_api_key(api_key)
     sc = report_data.get("score", {})
+    trend_line = f"\nTREND: {trend_text}" if trend_text else ""
     fallback = (
         f"WHAT'S WRONG: Overall Data Quality Score is {sc.get('overall')} ({sc.get('rating')}).\n"
         f"WHY IT MATTERS: Readiness status is {sc.get('readiness')}.\n"
-        f"WHAT TO DO: Review the findings below for details."
+        f"WHAT TO DO: Review the findings below for details.{trend_line}"
     )
     if not key:
         return Explanation("__overall__", fallback, source="fallback", error="no_api_key")
     try:
-        prompt = _build_overall_prompt(report_data)
+        prompt = _build_overall_prompt(report_data, trend_text=trend_text)
         text = _call_gemini(prompt, key, model, timeout)
         return Explanation("__overall__", text, source="ai")
     except Exception as exc:  # noqa: BLE001
@@ -238,19 +366,31 @@ def generate_explanations(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     max_workers: int = 4,
     include_overall: bool = True,
+    include_pii: bool = True,
+    trend_text: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Generate an Inspect-button explanation for every check in
-    report_data['checks'], plus (optionally) one for the report overall.
+    report_data['checks'], plus (optionally) one for the report overall
+    and one for the PII/sensitive-data block.
 
     Generic by construction: iterates whatever check names Phase 1
     produced for this particular dataset -- no hardcoded check list.
+    Non-'checks' sections (currently just PII) are added via a small
+    adapter (see _pii_summary_to_check_shape) that normalizes them into
+    the same shape, so they flow through the exact same explain_check()
+    path -- no separate AI call logic needed per section type.
 
     Never raises. Worst case (no key / Gemini down / package missing),
     every entry in the returned dict is a "fallback" explanation built
     from Phase 1's own numbers, and the caller can render the report
     exactly as if this function had succeeded.
     """
-    checks: dict[str, dict[str, Any]] = report_data.get("checks", {}) or {}
+    checks: dict[str, dict[str, Any]] = dict(report_data.get("checks", {}) or {})
+
+    pii_block = report_data.get("pii") or {}
+    if include_pii and pii_block:
+        checks["pii"] = _pii_summary_to_check_shape(pii_block)
+
     results: dict[str, dict[str, Any]] = {}
 
     try:
@@ -264,7 +404,12 @@ def generate_explanations(
             if include_overall:
                 futures[
                     pool.submit(
-                        explain_overall, report_data, api_key=api_key, model=model, timeout=timeout
+                        explain_overall,
+                        report_data,
+                        api_key=api_key,
+                        model=model,
+                        timeout=timeout,
+                        trend_text=trend_text,
                     )
                 ] = "__overall__"
 
@@ -287,10 +432,11 @@ def generate_explanations(
             ).to_dict()
         if include_overall:
             sc = report_data.get("score", {})
+            trend_line = f"\nTREND: {trend_text}" if trend_text else ""
             fallback = (
                 f"WHAT'S WRONG: Overall Data Quality Score is {sc.get('overall')} ({sc.get('rating')}).\n"
                 f"WHY IT MATTERS: Readiness status is {sc.get('readiness')}.\n"
-                f"WHAT TO DO: Review the findings below for details."
+                f"WHAT TO DO: Review the findings below for details.{trend_line}"
             )
             results["__overall__"] = Explanation(
                 "__overall__", fallback, source="fallback", error="ai_layer_unavailable"

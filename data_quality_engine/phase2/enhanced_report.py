@@ -226,6 +226,30 @@ def _inject_overall_inspect(html: str, explanations: dict[str, dict]) -> str:
     return html
 
 
+def _inject_pii_inspect(html: str, explanations: dict[str, dict]) -> str:
+    """Add one Inspect button next to the PII/Sensitive Data section
+    heading, if that section exists in the rendered HTML.
+
+    html_report.py doesn't wrap the PII block in a `check-card` like the
+    Phase 1 checks -- it renders inside a plain card titled "Sensitive
+    Data & Standardization Summary" (which covers both PII and fuzzy
+    matching). Same best-effort pattern as _inject_overall_inspect: if
+    the heading text isn't found (e.g. a future Phase 1 report redesign),
+    this is a no-op, not a failure.
+    """
+    pii = explanations.get("pii")
+    if not pii:
+        return html
+    source = "ai" if pii.get("ai_available") else "fallback"
+    button = _inspect_button_html("pii", "Sensitive Data Assessment", source)
+    pattern = re.compile(
+        r"(<h2[^>]*>\s*Sensitive Data (?:&amp;|&) Standardization Summary\s*</h2>)",
+        re.IGNORECASE,
+    )
+    html, _ = pattern.subn(lambda m: m.group(1) + button, html, count=1)
+    return html
+
+
 def _inject_modal_and_css(html: str, explanations: dict[str, dict]) -> str:
     # Escape "</" so an AI explanation that happens to contain the literal
     # text "</script>" (e.g. quoting something odd from the source data)
@@ -237,6 +261,46 @@ def _inject_modal_and_css(html: str, explanations: dict[str, dict]) -> str:
     return html
 
 
+_TREND_BANNER_TEMPLATE = """
+<div class="trend-banner trend-{direction}">
+  <span class="trend-icon">{icon}</span>
+  <span>{text}</span>
+</div>
+"""
+
+_TREND_BANNER_CSS = """
+.trend-banner{
+  display:flex;align-items:center;gap:10px;margin:14px 0 0 0;padding:10px 16px;
+  border-radius:8px;font-size:13.5px;font-weight:600;
+}
+.trend-banner.trend-improved{background:#ECFDF5;color:#047857}
+.trend-banner.trend-declined{background:#FEF2F2;color:#B91C1C}
+.trend-banner.trend-unchanged{background:#F8FAFC;color:#475569}
+.trend-banner.trend-first_run{background:#EFF6FF;color:#1D4ED8}
+.trend-icon{font-size:16px}
+"""
+
+
+def _inject_trend_banner(html: str, trend) -> str:
+    """Insert a small colored banner right after the score ring showing
+    whether this run's score improved, declined, or is unchanged since
+    the last run on this same client/file. No-op if trend is None (e.g.
+    history tracking unavailable) or the score-hero section can't be
+    found in the rendered HTML."""
+    if trend is None:
+        return html
+    icons = {"improved": "&#9650;", "declined": "&#9660;", "unchanged": "&#8226;", "first_run": "&#128204;"}
+    banner = _TREND_BANNER_TEMPLATE.format(
+        direction=trend.direction,
+        icon=icons.get(trend.direction, "&#8226;"),
+        text=trend.to_display_text(),
+    )
+    html = html.replace("</style>", _TREND_BANNER_CSS + "\n</style>", 1)
+    pattern = re.compile(r"(</div>\s*<div class=\"hero-meta\">)", re.DOTALL)
+    new_html, n = pattern.subn(lambda m: banner + m.group(1), html, count=1)
+    return new_html if n else html
+
+
 def generate_ai_enhanced_html_report(
     report_data: dict[str, Any],
     output_path: str,
@@ -244,6 +308,7 @@ def generate_ai_enhanced_html_report(
     api_key: str | None = None,
     model: str = ai_explainer.DEFAULT_MODEL,
     timeout: float = ai_explainer.DEFAULT_TIMEOUT_SECONDS,
+    trend: Any = None,
 ) -> str:
     """Produce an AI-enhanced copy of the standard Phase 1 HTML report.
 
@@ -255,6 +320,11 @@ def generate_ai_enhanced_html_report(
          an "Inspect" button that opens a plain-language AI explanation.
       3. Any explanation Gemini couldn't produce falls back to a clearly
          labeled rule-based explanation instead of an error or blank panel.
+
+    trend: optional history.ScoreTrend (see phase2/history.py). When
+    given, a small banner is shown near the score ring and the executive
+    summary's AI explanation is made trend-aware. Report generation is
+    unaffected if this is None (e.g. first run, or DB unavailable).
     """
     # Step 1: render the untouched Phase 1 report to a scratch file, then
     # read it back in. Phase 1's generator itself is never modified or
@@ -268,19 +338,23 @@ def generate_ai_enhanced_html_report(
     # ai_explainer.generate_explanations docstring), but we wrap it again
     # here as a last line of defense so a bug in the AI layer can never
     # prevent the (already-rendered) Phase 1 report from being saved.
+    trend_text = trend.to_display_text() if trend is not None else None
     try:
         explanations = ai_explainer.generate_explanations(
-            report_data, api_key=api_key, model=model, timeout=timeout
+            report_data, api_key=api_key, model=model, timeout=timeout, trend_text=trend_text
         )
     except Exception:  # noqa: BLE001
         explanations = {}
 
-    # Step 3: inject Inspect buttons + modal. Each injection step is
-    # independently best-effort; if a particular button can't be placed,
-    # the report is still written with everything else intact.
+    # Step 3: inject Inspect buttons + modal + trend banner. Each
+    # injection step is independently best-effort; if a particular piece
+    # can't be placed, the report is still written with everything else
+    # intact.
     try:
         html = _inject_inspect_buttons(html, report_data, explanations)
         html = _inject_overall_inspect(html, explanations)
+        html = _inject_pii_inspect(html, explanations)
+        html = _inject_trend_banner(html, trend)
         html = _inject_modal_and_css(html, explanations)
     except Exception:  # noqa: BLE001
         # Worst case: fall back to the plain, unmodified Phase 1 HTML

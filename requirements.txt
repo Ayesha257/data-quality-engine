@@ -45,3 +45,9 @@ SQLAlchemy>=2.0
 pydantic>=2.6
 # Per-client rule files (config/base_rules.yaml, config/clients/<id>/rules_vN.yaml)
 PyYAML>=6.0
+
+# --- Phase 2: AI Explanation Layer (M2) ---
+# Used by ai_explainer.py for the Gemini REST calls and .env loading —
+# both were already imported but missing from this file.
+requests>=2.31
+python-dotenv>=1.0

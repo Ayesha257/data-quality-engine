@@ -54,6 +54,7 @@ from data_quality_engine.engine.reporting.pdf_report import generate_pdf_report
 from data_quality_engine.engine.reporting.html_report import generate_html_report
 
 from data_quality_engine.phase2.enhanced_report import generate_ai_enhanced_html_report
+from data_quality_engine.phase2 import history
 
 
 def build_report_data_for_file(filepath: str, sheet_name: str | None):
@@ -128,6 +129,7 @@ def run_and_generate_reports_phase2(
     out_dir: str,
     *,
     api_key: str | None = None,
+    client_id: str = "default_client",
 ):
     report_data, df_shape = build_report_data_for_file(filepath, sheet_name)
 
@@ -143,10 +145,24 @@ def run_and_generate_reports_phase2(
     generate_pdf_report(report_data, str(pdf_path))
     generate_html_report(report_data, str(html_path))
 
-    # Phase 2: same report, plus Inspect buttons. Never throws -- worst
-    # case this file ends up identical in content to html_path, with
-    # rule-based explanations behind every Inspect button instead of AI.
-    generate_ai_enhanced_html_report(report_data, str(ai_html_path), api_key=api_key)
+    # Phase 2 (M2 addition): compare this run's score against the most
+    # recent prior run for this exact client_id + filename, then save
+    # this run. Uses the file's own name as the identity key, so nothing
+    # here is dataset-specific -- any client, any file, works the same
+    # way. Never blocks report generation: if the DB is unreachable,
+    # get_score_trend/save_run fail soft and trend stays None.
+    trend = history.record_run_and_get_trend(
+        client_id=client_id, file_name=Path(filepath).name, report_data=report_data
+    )
+    if trend is not None:
+        print(f"Score trend: {trend.to_display_text()}")
+
+    # Phase 2: same report, plus Inspect buttons (now covering every
+    # Phase 1 check AND the PII/sensitive-data section) and a score-trend
+    # banner. Never throws -- worst case this file ends up identical in
+    # content to html_path, with rule-based explanations behind every
+    # Inspect button instead of AI.
+    generate_ai_enhanced_html_report(report_data, str(ai_html_path), api_key=api_key, trend=trend)
 
     print(f"Rows/Cols: {df_shape}")
     print(f"Data Quality Score: {report_data['score'].get('overall')}")
@@ -166,6 +182,13 @@ if __name__ == "__main__":
     parser.add_argument("--sheet", default=None, help="Sheet name (omit to use the first sheet)")
     parser.add_argument("--out", default="reports", help="Output directory (default: reports)")
     parser.add_argument(
+        "--client-id",
+        default="default_client",
+        help="Identifies which client this report belongs to, for score-trend "
+        "history (default: 'default_client'). Use a real client id once you're "
+        "processing files for more than one client so their trends don't mix.",
+    )
+    parser.add_argument(
         "--gemini-api-key",
         default=None,
         help="Gemini API key. If omitted, falls back to the GEMINI_API_KEY env var, "
@@ -173,4 +196,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    run_and_generate_reports_phase2(args.filepath, args.sheet, args.out, api_key=args.gemini_api_key)
+    run_and_generate_reports_phase2(
+        args.filepath, args.sheet, args.out, api_key=args.gemini_api_key, client_id=args.client_id
+    )

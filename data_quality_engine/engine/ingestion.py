@@ -325,6 +325,18 @@ def read_excel_file(filepath: str | Path) -> dict[str, pd.DataFrame]:
     if not path.exists():
         raise FileNotFoundError(f"Data file not found: {path}")
 
+    if path.name.startswith("~$"):
+        raise ValueError(
+            f"'{path.name}' is a Microsoft Office lock/temp file, not a real "
+            f"workbook (Office creates these automatically while the real "
+            f"file is open, and sometimes leaves them behind after a crash). "
+            f"It always fails to parse as a zip archive because it isn't one -- "
+            f"that's not a bug in this pipeline. Close the file in Excel if "
+            f"it's still open, delete this leftover '~$...' file if it "
+            f"lingers, and re-upload the real "
+            f"'{path.name[2:]}' instead."
+        )
+
     suffix = path.suffix.lower()
     if suffix not in _SUPPORTED:
         raise ValueError(

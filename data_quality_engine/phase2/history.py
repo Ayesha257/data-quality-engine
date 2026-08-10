@@ -22,11 +22,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from data_quality_engine.phase2.database import get_session, init_db
-from data_quality_engine.phase2.database.models import RunRecord, RunStatus
+from data_quality_engine.phase2.database.models import RunRecord, RunStatus, _utcnow
 
 logger = logging.getLogger("dqe.phase2.history")
 
@@ -108,7 +107,11 @@ def save_run(
                 rows_processed=rows_processed,
                 cols_processed=cols_processed,
                 ruleset_version=ruleset_version,
-                completed_at=datetime.now(timezone.utc),
+                # Use the shared monotonic clock (models._utcnow), not a
+                # bare datetime.now() call -- see its docstring. This is
+                # what makes "most recent run" ordering below reliable
+                # even when two runs are saved back to back.
+                completed_at=_utcnow(),
             )
             session.add(run)
             session.flush()
@@ -146,7 +149,13 @@ def get_score_trend(
                     RunRecord.status == RunStatus.COMPLETED,
                     RunRecord.overall_score.isnot(None),
                 )
-                .order_by(RunRecord.completed_at.desc())
+                # completed_at is generated from the monotonic clock in
+                # models._utcnow(), so ties within a single process can't
+                # happen; created_at is a second, independently-generated
+                # monotonic timestamp kept as a tiebreaker for the
+                # cross-process case (e.g. two app instances racing to
+                # write to the same production database).
+                .order_by(RunRecord.completed_at.desc(), RunRecord.created_at.desc())
             )
             if exclude_run_id:
                 query = query.filter(RunRecord.id != exclude_run_id)

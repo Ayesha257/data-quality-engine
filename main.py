@@ -33,7 +33,6 @@ from data_quality_engine.engine.checks.referential_integrity import (
     check_referential_integrity,
 )
 from data_quality_engine.config import domain_rules
-from data_quality_engine.engine.report import generate_html_report, write_html_report
 from data_quality_engine.engine.column_classifier import classify_columns
 from data_quality_engine.config.settings import SETTINGS
 from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
@@ -43,7 +42,24 @@ from data_quality_engine.engine.standardization.fuzzy_match import (
 )
 from data_quality_engine.engine.scoring import compute_data_quality_score
 from data_quality_engine.engine.logging_utils import get_logger, log_event
+from data_quality_engine.phase2.readiness.scorer import score_readiness
+from data_quality_engine.phase2.readiness.temporal import analyze_temporal_sufficiency
+from data_quality_engine.phase2.readiness.intervals import analyze_interval_regularity
+from data_quality_engine.phase2.readiness.target import analyze_target_integrity
+from data_quality_engine.phase2.readiness.leakage import analyze_leakage_and_cardinality
+from data_quality_engine.engine.reporting.report_generator import build_report_data
+from data_quality_engine.engine.reporting.pdf_report import generate_pdf_report
+from data_quality_engine.phase2.enhanced_report import generate_ai_enhanced_html_report
+from data_quality_engine.phase2 import history
 import logging
+
+# NOTE: the legacy (non-AI) HTML report generator --
+#   from data_quality_engine.engine.report import generate_html_report, write_html_report
+# has been intentionally removed from this file. The Phase 2 AI-enhanced
+# report (built via build_report_data() + generate_ai_enhanced_html_report())
+# is now the ONLY report --report writes. See _write_ai_enhanced_report()
+# and the "if write_report:" block inside run_pipeline() below.
+
 
 def _print_encoding_check(filepath: str):
     """
@@ -651,6 +667,205 @@ def _print_referential_integrity_results(
     }
 
 
+def _print_ml_readiness_results(df, target_column: str | None, date_column: str | None):
+    """
+    Phase 2 -- M3: ML Readiness Assessment. Opt-in only (requires both
+    --target-column and --date-column); when either is missing this is
+    skipped and that is printed explicitly, the same way Referential
+    Integrity is skipped without --reference-dir.
+
+    Never raises -- score_readiness() itself is designed to never raise
+    (see phase2/readiness/scorer.py), and every sub-analysis here follows
+    the same contract, so a bad/missing column comes back as blockers in
+    the printed output, not a crashed run.
+
+    Returns a dict shaped for build's HTML report card (_ml_readiness_html
+    in engine/report.py) -- an asdict()'d ReadinessScore plus the four
+    sub-analyses under "temporal"/"interval"/"target"/"leakage", or None
+    if this step was skipped.
+    """
+    from dataclasses import asdict
+
+    print("\n=== ML Model Readiness (opt-in, requires --target-column and --date-column) ===")
+    if not target_column or not date_column:
+        print("Skipped: --target-column and --date-column were not both supplied.")
+        return None
+
+    if target_column not in df.columns:
+        print(f"Skipped: target column '{target_column}' not found in this sheet.")
+        return None
+    if date_column not in df.columns:
+        print(f"Skipped: date column '{date_column}' not found in this sheet.")
+        return None
+
+    result = score_readiness(df, target_column=target_column, date_column=date_column)
+    temporal = analyze_temporal_sufficiency(df, date_column)
+    interval = analyze_interval_regularity(df, date_column)
+    target = analyze_target_integrity(df, target_column)
+    leakage = analyze_leakage_and_cardinality(df, target_column)
+
+    print("-" * 70)
+    print(f"Verdict: {result.verdict.upper()}   Overall score: {result.overall_score:.1f} / 100")
+    print("-" * 70)
+    print(f"{'Sub-score':20} {'Value':>10}")
+    print(f"{'Temporal':20} {result.temporal_score:>10.1f}")
+    print(f"{'Interval':20} {result.interval_score:>10.1f}")
+    print(f"{'Target':20} {result.target_score:>10.1f}")
+    print(f"{'Leakage':20} {result.leakage_score:>10.1f}")
+
+    print(f"\n[Temporal] observations={temporal.total_observations} "
+          f"range_days={temporal.date_range_days} "
+          f"frequency={temporal.implied_frequency} "
+          f"seasonal_cycles={temporal.seasonal_cycles_detected}")
+    print(f"[Interval] frequency={interval.inferred_frequency} "
+          f"missing_intervals={interval.missing_intervals} "
+          f"duplicate_timestamps={interval.duplicate_timestamps} "
+          f"regularity_score={interval.regularity_score}")
+    print(f"[Target:{target.column_name}] null%={target.null_pct} "
+          f"zero%={target.zero_pct} outlier%={target.outlier_pct} "
+          f"variance={target.variance}")
+    print(f"[Leakage] perfect_correlation={leakage.perfect_correlation_features} "
+          f"high_cardinality={leakage.high_cardinality_features} "
+          f"identifiers={leakage.identifier_features}")
+
+    if result.blockers:
+        print("\nBLOCKERS:")
+        for b in result.blockers:
+            print(f"  - {b}")
+    if result.warnings:
+        print("\nWarnings:")
+        for w in result.warnings:
+            print(f"  - {w}")
+    if result.recommendations:
+        print("\nRecommendations:")
+        for r in result.recommendations:
+            print(f"  - {r}")
+    print("-" * 70)
+
+    readiness_dict = asdict(result)
+    readiness_dict["temporal"] = asdict(temporal)
+    readiness_dict["interval"] = asdict(interval)
+    readiness_dict["target"] = asdict(target)
+    readiness_dict["leakage"] = asdict(leakage)
+    return readiness_dict
+
+
+def _write_ai_enhanced_report(
+    *,
+    filepath: str,
+    sname: str,
+    df,
+    header_row: int,
+    classification: dict[str, str],
+    task2_summary: dict,
+    task3_summary: dict,
+    task4_summary: dict,
+    task5_summary: dict,
+    fuzzy_summary: dict,
+    referential_summary: dict,
+    score: dict,
+    readiness_summary: dict | None,
+    processing_time_seconds: float,
+    out_dir,
+    client_id: str,
+    gemini_api_key: str | None,
+):
+    """
+    Bridges this pipeline's already-computed CheckResult lists (Task 2-5,
+    exactly what the console output already used) into build_report_data()'s
+    expected shape, then renders the Phase 2 "Inspect button" AI-enhanced
+    HTML report from that -- no checks are re-run, no second pass over the
+    dataframe.
+
+    This is now the ONLY report --report writes (see run_pipeline's
+    "if write_report:" block below). The old engine.report legacy HTML
+    report generator has been removed from this pipeline.
+
+    Raises on failure -- run_pipeline's caller wraps this in its own
+    try/except so a report failure is surfaced as an [ERROR] line instead
+    of silently producing nothing. This "raises" contract covers the HTML
+    report only; the PDF is best-effort (see below) and never raises.
+
+    Returns (html_path, pdf_path). pdf_path is None if PDF rendering
+    failed -- that failure is logged but never blocks the HTML report
+    which already succeeded by that point.
+    """
+    check_results_by_name: dict[str, list] = {
+        "missing_values": task2_summary["missing_results"],
+        "duplicates": task2_summary["duplicate_results"],
+        "type_mismatch": task2_summary["type_results"],
+        "outliers": task3_summary["outlier_results"],
+        "schema_quality": task5_summary["schema_results"],
+        "consistency": task5_summary["consistency_results"],
+        "validity": task5_summary["validity_results"],
+        "freshness": task5_summary["freshness_results"],
+    }
+    non_skipped_fuzzy = [
+        r
+        for r in fuzzy_summary.get("fuzzy_results", [])
+        if not str(r.details.get("reason", "")).startswith("skipped_")
+    ]
+    if non_skipped_fuzzy:
+        check_results_by_name["fuzzy_match"] = non_skipped_fuzzy
+    if referential_summary.get("referential_results"):
+        check_results_by_name["referential_integrity"] = referential_summary["referential_results"]
+
+    fuzzy_results_param = {
+        str(r.column): {
+            "remap_rows": r.issues_found,
+            "clusters": r.details.get("clusters_collapsed", 0),
+            "mapping_sample": list((r.details.get("mapping_sample") or {}).items())[:5],
+        }
+        for r in non_skipped_fuzzy
+    }
+
+    report_data = build_report_data(
+        filepath=filepath,
+        sheet_name=sname,
+        df_shape=df.shape,
+        header_row=header_row,
+        processing_time_seconds=processing_time_seconds,
+        classification=classification,
+        check_results_by_name=check_results_by_name,
+        pii_summary_by_column=task4_summary.get("pii_summary_by_column") or {},
+        fuzzy_results=fuzzy_results_param,
+        score=score,
+        readiness=readiness_summary,
+    )
+
+    trend = None
+    try:
+        trend = history.record_run_and_get_trend(
+            client_id=client_id, file_name=Path(filepath).name, report_data=report_data
+        )
+        if trend is not None:
+            print(f"Score trend: {trend.to_display_text()}")
+    except Exception as exc:  # noqa: BLE001 - trend history is best-effort only
+        print(f"Score trend unavailable (history DB error): {exc}")
+
+    stem = Path(filepath).stem
+    safe_sheet = "".join(c if c.isalnum() else "_" for c in sname)
+    ai_path = Path(out_dir) / f"{stem}_{safe_sheet}_data_quality_report.html"
+    ai_path.parent.mkdir(parents=True, exist_ok=True)
+    generate_ai_enhanced_html_report(
+        report_data, str(ai_path), api_key=gemini_api_key, trend=trend
+    )
+
+    # A real, downloadable PDF alongside the HTML report -- same
+    # report_data, no re-computation. Best-effort: a PDF render failure
+    # (e.g. an fpdf2 layout edge case) must never take down the HTML
+    # report that already succeeded above.
+    pdf_path: str | None = None
+    try:
+        pdf_file = Path(out_dir) / f"{stem}_{safe_sheet}_data_quality_report.pdf"
+        generate_pdf_report(report_data, str(pdf_file))
+        pdf_path = str(pdf_file)
+    except Exception as exc:  # noqa: BLE001 - PDF is a bonus output, not required
+        print(f"\n[WARN] PDF report generation failed for sheet '{sname}': {exc}")
+
+    return str(ai_path), pdf_path
+
+
 def run_pipeline(
     filepath: str,
     sheet_name: str | None = None,
@@ -660,14 +875,18 @@ def run_pipeline(
     include_products: bool = False,
     write_report: bool = False,
     report_dir: str | None = None,
-):
+    target_column: str | None = None,
+    date_column: str | None = None,
+    client_id: str = "default_client",
+    gemini_api_key: str | None = None,
+) -> list[dict]:
     """
-    Full Phase 1 pipeline for one file (all sheets, or a single --sheet).
+    Full Phase 1 + Phase 2 pipeline for one file (all sheets, or a single --sheet).
 
     Order: header confirm → scope confirm → column classification →
     missing/duplicates/types → outliers → PII → schema/consistency/
     validity/freshness → referential integrity (opt-in) → composite score
-    + privacy risk → HTML report (opt-in).
+    + privacy risk → ML readiness (opt-in) → Phase 2 AI-enhanced HTML report.
 
     reference_dir: opt-in only. When set, points to the folder holding
     Customer List.xls / Supplier List.xls / Product Data by Product
@@ -676,14 +895,52 @@ def run_pipeline(
     step is skipped and that is printed explicitly.
     include_products: also check product-code columns against Product
     Data by Product Site.xlsx (large file — off by default).
-    write_report: opt-in. When True, writes an HTML report per sheet to
-    report_dir (default SETTINGS["reports_dir"]) built from the exact same
-    CheckResult objects the console output above already printed -- see
-    engine/report.py's module docstring for why that matters.
+    write_report: opt-in. When True, writes ONE HTML report per sheet --
+    the Phase 2 AI-enhanced report (built via build_report_data() +
+    generate_ai_enhanced_html_report()) -- to report_dir (default
+    SETTINGS["reports_dir"]). Built from the exact same CheckResult
+    objects the console output above already printed. The legacy
+    (non-AI) report generator has been removed; this is now the only
+    report the pipeline writes.
+    target_column / date_column: opt-in, both required together. When set,
+    runs the Phase 2 M3 ML Readiness Assessment (temporal sufficiency,
+    interval regularity, target integrity, leakage/cardinality) against
+    this sheet and folds it into the console output and the report as its
+    own section -- never into the Task 6 composite score, the same
+    pattern as Referential Integrity above.
+    client_id / gemini_api_key: only used when write_report=True. Every
+    --report run writes "<stem>_<sheet>_data_quality_report.html" -- built
+    from the exact same CheckResult objects as the console output (no
+    second pipeline pass), with an "Inspect" button on every finding that
+    shows a plain-language explanation (AI via Gemini if gemini_api_key /
+    GEMINI_API_KEY is set, otherwise a rule-based fallback -- see
+    phase2/enhanced_report.py). client_id scopes the score-trend history
+    shown on that report; use a real per-client id once you process files
+    for more than one client so their trends don't mix.
+
+    Returns a list with one dict per sheet actually processed (skipped/
+    hidden sheets are omitted), each shaped:
+        {
+            "sheet_name": str,
+            "rows": int, "columns": int,
+            "data_quality_score": float | None,
+            "privacy_risk_level": str | None,
+            "ml_readiness_verdict": str | None,
+            "ml_readiness_score": float | None,
+            "report_path": str | None,   # only when write_report=True and it succeeded
+            "error": str | None,         # set instead of the above if this sheet raised
+        }
+    This is purely additive: every existing CLI/script caller already
+    ignored run_pipeline's (previously implicit `None`) return value, so
+    nothing about current behavior changes. It exists so a non-interactive
+    caller (Phase 2 M4's REST API -- see phase2/api/jobs.py) can report a
+    real outcome back to whoever asked for the run, for any file/dataset,
+    without scraping stdout or re-deriving what the pipeline already knows.
     """
     prompt = prompt or CLIPrompt()
     run_id = uuid.uuid4().hex[:12]
     logger = get_logger(run_id)
+    sheet_outcomes: list[dict] = []
 
     sheets = read_excel_file(filepath)
     if sheet_name:
@@ -753,33 +1010,39 @@ def run_pipeline(
                 fuzzy_summary,
                 encoding_summary,
             )
+            readiness_summary = _print_ml_readiness_results(df, target_column, date_column)
 
+            report_path: str | None = None
+            pdf_report_path: str | None = None
+            report_error: str | None = None
             if write_report:
-                report_html = generate_html_report(
-                    file_label=Path(filepath).name,
-                    sheet_name=sname,
-                    rows=len(df),
-                    columns=df.shape[1],
-                    header_row=header_row,
-                    classification=classification,
-                    task2_summary=task2_summary,
-                    task3_summary=task3_summary,
-                    task4_summary=task4_summary,
-                    fuzzy_summary=fuzzy_summary,
-                    task5_summary=task5_summary,
-                    score=score,
-                    processing_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    execution_time_s=time.perf_counter() - sheet_start,
-                )
                 out_dir = Path(report_dir) if report_dir else SETTINGS["reports_dir"]
-                stem = Path(filepath).stem
-                safe_sheet = "".join(c if c.isalnum() else "_" for c in sname)
-                out_path = write_html_report(
-                    report_html,
-                    reports_dir=out_dir,
-                    filename=f"{stem}_{safe_sheet}_data_quality_report.html",
-                )
-                print(f"\nReport written: {out_path}")
+
+                try:
+                    report_path, pdf_report_path = _write_ai_enhanced_report(
+                        filepath=filepath,
+                        sname=sname,
+                        df=df,
+                        header_row=header_row,
+                        classification=classification,
+                        task2_summary=task2_summary,
+                        task3_summary=task3_summary,
+                        task4_summary=task4_summary,
+                        task5_summary=task5_summary,
+                        fuzzy_summary=fuzzy_summary,
+                        referential_summary=referential_summary,
+                        score=score,
+                        readiness_summary=readiness_summary,
+                        processing_time_seconds=time.perf_counter() - sheet_start,
+                        out_dir=out_dir,
+                        client_id=client_id,
+                        gemini_api_key=gemini_api_key,
+                    )
+                    print(f"\nReport written: {report_path}")
+                except Exception as exc:  # noqa: BLE001 - report generation is
+                    # best-effort and must never abort the remaining sheets.
+                    report_error = str(exc)
+                    print(f"\n[ERROR] Report generation failed for sheet '{sname}': {exc}")
         except Exception as exc:  # noqa: BLE001 - never abort remaining sheets
             log_event(
                 logger,
@@ -790,6 +1053,19 @@ def run_pipeline(
                 details={"file": str(Path(filepath).name), "sheet": sname, "error": str(exc)},
             )
             print(f"\n[ERROR] Sheet '{sname}' failed: {exc}")
+            sheet_outcomes.append({
+                "sheet_name": sname,
+                "rows": None,
+                "columns": None,
+                "data_quality_score": None,
+                "dimension_scores": {},
+                "privacy_risk_level": None,
+                "ml_readiness_verdict": None,
+                "ml_readiness_score": None,
+                "report_path": None,
+                "pdf_report_path": None,
+                "error": str(exc),
+            })
             continue
 
         checks_run = [
@@ -807,6 +1083,7 @@ def run_pipeline(
             "freshness",
             "referential_integrity" if reference_dir else "referential_integrity_skipped",
             "scoring",
+            "ml_readiness" if (target_column and date_column) else "ml_readiness_skipped",
         ]
         pass_count = (
             (task2_summary["missing_columns_scanned"] - task2_summary["missing_columns_with_issues"])
@@ -860,10 +1137,35 @@ def run_pipeline(
                     if not encoding_summary or encoding_summary.get("encoding_result") is None
                     else encoding_summary["encoding_result"].status
                 ),
+                "ml_readiness_verdict": (
+                    readiness_summary.get("verdict") if readiness_summary else None
+                ),
+                "ml_readiness_score": (
+                    readiness_summary.get("overall_score") if readiness_summary else None
+                ),
             },
         )
 
+        sheet_outcomes.append({
+            "sheet_name": sname,
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+            "data_quality_score": score.get("data_quality_score"),
+            "dimension_scores": score.get("dimension_scores", {}),
+            "privacy_risk_level": (score.get("privacy_risk") or {}).get("risk_level"),
+            "ml_readiness_verdict": (
+                readiness_summary.get("verdict") if readiness_summary else None
+            ),
+            "ml_readiness_score": (
+                readiness_summary.get("overall_score") if readiness_summary else None
+            ),
+            "report_path": report_path,
+            "pdf_report_path": pdf_report_path,
+            "error": report_error,
+        })
+
     print("\nDone: Task 1-6 completed.")
+    return sheet_outcomes
 
 
 # Backward-compatible alias (older scripts/tests may still call this name).
@@ -873,9 +1175,10 @@ run_task1_task2 = run_pipeline
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
-            "Run the full Phase 1 pipeline: ingestion + header detection, "
+            "Run the full Phase 1 + Phase 2 pipeline: ingestion + header detection, "
             "core profiling, outliers, PII, RapidFuzz fuzzy standardization, "
-            "schema/consistency/validity/freshness, and a composite Data Quality Score."
+            "schema/consistency/validity/freshness, a composite Data Quality Score, "
+            "and the Phase 2 AI-enhanced HTML report (the only report format written)."
         )
     )
     p.add_argument("filepath", help="Path to .xlsx/.xls/.csv file")
@@ -899,9 +1202,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--report",
         action="store_true",
-        help="Write an HTML data-quality report per sheet, built from the "
-        "exact same check results as the console output above (never a "
-        "separate calculation). Written to --report-dir or "
+        help="Write the Phase 2 AI-enhanced HTML data-quality report per "
+        "sheet (the only report format this pipeline writes), built from "
+        "the exact same check results as the console output above (never "
+        "a separate calculation). Written to --report-dir or "
         "SETTINGS['reports_dir'] (./reports by default).",
     )
     p.add_argument(
@@ -909,6 +1213,37 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Directory to write --report output to. Defaults to "
         "SETTINGS['reports_dir'].",
+    )
+    p.add_argument(
+        "--target-column",
+        default=None,
+        help="Opt-in: numeric column to forecast. Must be paired with "
+        "--date-column. When both are set, runs the Phase 2 M3 ML "
+        "Readiness Assessment (temporal sufficiency, interval regularity, "
+        "target integrity, leakage) and adds it to the console output and "
+        "the report. Skipped by default.",
+    )
+    p.add_argument(
+        "--date-column",
+        default=None,
+        help="Opt-in: date/time column for the ML Readiness Assessment. "
+        "Must be paired with --target-column.",
+    )
+    p.add_argument(
+        "--client-id",
+        default="default_client",
+        help="Only used with --report. Identifies which client this run "
+        "belongs to, for the report's score-trend history "
+        "(default: 'default_client'). Use a real client id once you're "
+        "processing files for more than one client so their trends don't mix.",
+    )
+    p.add_argument(
+        "--gemini-api-key",
+        default=None,
+        help="Only used with --report. Gemini API key for the report's "
+        "Inspect-button explanations. If omitted, falls back to "
+        "the GEMINI_API_KEY env var, and if that's also unset the Inspect "
+        "button uses rule-based explanations instead of AI.",
     )
     return p
 
@@ -925,4 +1260,8 @@ if __name__ == "__main__":
         include_products=args.include_products,
         write_report=args.report,
         report_dir=args.report_dir,
+        target_column=args.target_column,
+        date_column=args.date_column,
+        client_id=args.client_id,
+        gemini_api_key=args.gemini_api_key,
     )

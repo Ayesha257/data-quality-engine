@@ -45,8 +45,7 @@ def test_run_pipeline_completes_all_tasks(capsys):
     assert "Data Quality Score:" in out
     assert "Privacy Risk (separate -- never part of the score above)" in out
     assert "Done: Task 1-6 completed." in out
-
-
+ 
 def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
     # Redirect logs to a temp dir so the test doesn't depend on / pollute
     # the repo's real logs/ directory.
@@ -80,6 +79,7 @@ def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
         "freshness",
         "referential_integrity_skipped",
         "scoring",
+        "ml_readiness_skipped",
     }
     assert "data_quality_score" in line["details"]
     assert "privacy_risk_level" in line["details"]

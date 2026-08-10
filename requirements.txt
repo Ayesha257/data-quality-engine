@@ -51,3 +51,15 @@ PyYAML>=6.0
 # both were already imported but missing from this file.
 requests>=2.31
 python-dotenv>=1.0
+
+# --- Phase 2: REST API (M4) ---
+# FastAPI + its ASGI server. Runs run_pipeline() as a background thread
+# per run (see phase2/api/jobs.py) -- no Redis/RQ broker required to
+# actually execute this codebase's synchronous, per-file pipeline.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+
+# --- auth upgrade (login/register) ---
+PyJWT>=2.7
+passlib[bcrypt]>=1.7

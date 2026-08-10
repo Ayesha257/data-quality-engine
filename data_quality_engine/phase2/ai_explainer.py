@@ -62,6 +62,17 @@ _API_URL_TEMPLATE = (
 # whatever the current real limit is.
 DEFAULT_RPM_LIMIT = int(os.environ.get("GEMINI_RPM_LIMIT", "8"))
 DEFAULT_MAX_RETRIES = int(os.environ.get("GEMINI_MAX_RETRIES", "3"))
+# Ceiling on any single retry's backoff sleep. This function runs
+# synchronously inside report generation, which itself runs synchronously
+# inside the REST API's background job (see phase2/api/jobs.py) -- a
+# caller polling for run status has a real, finite patience. A 429/5xx
+# response's Retry-After header can legitimately say "60" or more; honor
+# it as a signal but never let it (or the exponential-backoff fallback)
+# turn one flaky check into a multi-minute stall. 8s x up to
+# DEFAULT_MAX_RETRIES retries keeps the worst realistic case in the tens
+# of seconds, not minutes -- see generate_explanations()'s batch_deadline,
+# which is sized against this constant.
+DEFAULT_MAX_RETRY_DELAY_SECONDS = float(os.environ.get("GEMINI_MAX_RETRY_DELAY_SECONDS", "8"))
 
 
 class _RateLimiter:
@@ -71,9 +82,23 @@ class _RateLimiter:
     parallel via a thread pool -- without this, that burst alone can
     exceed the free tier's per-minute quota on anything but a tiny file.
 
-    acquire() blocks the calling thread until a slot is free, rather than
-    raising, so callers never need extra error handling for "too many
-    requests, too fast" -- they just get correctly throttled.
+    acquire() blocks the calling thread until a slot is free (or until
+    `max_wait` elapses), rather than raising, so callers never need extra
+    error handling for "too many requests, too fast" -- they just get
+    correctly throttled. `max_wait` exists so a caller with its own
+    deadline (see generate_explanations' per_future_timeout) can't be
+    blocked here for longer than it's willing to wait; returns False
+    (never raises) if time ran out without a slot opening up, and the
+    caller decides what "no slot became available" means for it.
+
+    Root-cause note (Phase 2 M4): before max_wait existed, a run whose
+    Gemini key was invalid/rate-limited/blocked by network egress would
+    still queue every check behind this limiter's up-to-60-second window
+    with no ceiling, and generate_explanations()'s as_completed() loop had
+    no timeout of its own either -- so a single bad key could stall an
+    entire pipeline run (and, transitively, every REST API run that
+    requests write_report=True) for minutes. Bounding both this and the
+    as_completed loop below is what actually fixes that.
     """
 
     def __init__(self, max_per_minute: int):
@@ -81,7 +106,8 @@ class _RateLimiter:
         self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
+    def acquire(self, max_wait: float | None = None) -> bool:
+        deadline = time.monotonic() + max_wait if max_wait is not None else None
         while True:
             with self._lock:
                 now = time.monotonic()
@@ -89,8 +115,10 @@ class _RateLimiter:
                     self._timestamps.popleft()
                 if len(self._timestamps) < self.max_per_minute:
                     self._timestamps.append(now)
-                    return
+                    return True
                 wait_for = 60 - (now - self._timestamps[0])
+            if deadline is not None and time.monotonic() + max(0.05, wait_for) > deadline:
+                return False
             time.sleep(max(0.05, wait_for))
 
 
@@ -273,7 +301,20 @@ def _call_gemini(prompt: str, api_key: str, model: str, timeout: float) -> str:
 
     last_exc: Exception | None = None
     for attempt in range(DEFAULT_MAX_RETRIES + 1):
-        _rate_limiter.acquire()
+        # Bounded, not unbounded: a caller waiting `timeout` seconds for
+        # an HTTP response shouldn't also be able to wait up to a full
+        # 60-second rate-limiter window on top of that with no ceiling.
+        # If the limiter can't free a slot in time, treat that exactly
+        # like any other failure to get a response -- an exception the
+        # retry loop / caller's fallback path already knows how to
+        # handle -- rather than a silent indefinite stall.
+        if not _rate_limiter.acquire(max_wait=timeout):
+            last_exc = TimeoutError(
+                f"Gemini rate limiter did not free a slot within {timeout}s"
+            )
+            if attempt < DEFAULT_MAX_RETRIES:
+                continue
+            raise last_exc
         try:
             resp = requests.post(url, params={"key": api_key}, json=payload, timeout=timeout)
             if resp.status_code == 429 or resp.status_code >= 500:
@@ -281,7 +322,7 @@ def _call_gemini(prompt: str, api_key: str, model: str, timeout: float) -> str:
                 delay = float(retry_after) if retry_after else (2**attempt) + random.uniform(0, 1)
                 last_exc = RuntimeError(f"Gemini returned HTTP {resp.status_code}")
                 if attempt < DEFAULT_MAX_RETRIES:
-                    time.sleep(min(delay, 30))
+                    time.sleep(min(delay, DEFAULT_MAX_RETRY_DELAY_SECONDS))
                     continue
                 resp.raise_for_status()
             resp.raise_for_status()
@@ -393,6 +434,24 @@ def generate_explanations(
 
     results: dict[str, dict[str, Any]] = {}
 
+    # Hard wall-clock ceiling for the WHOLE batch, independent of any
+    # single call's `timeout`. Sized against the same constants
+    # _call_gemini uses for its own worst case (rate-limiter wait capped
+    # to `timeout`, plus up to DEFAULT_MAX_RETRIES retries each capped to
+    # DEFAULT_MAX_RETRY_DELAY_SECONDS of backoff) so this number is a
+    # real, provable ceiling rather than a guess -- and additionally
+    # hard-capped at MAX_BATCH_DEADLINE_SECONDS so a misconfigured
+    # GEMINI_TIMEOUT_SECONDS/GEMINI_MAX_RETRIES env var can never make
+    # this synchronous, best-effort step dominate the request it's part
+    # of (this call sits inside main.run_pipeline(), which the REST API's
+    # background job runner -- phase2/api/jobs.py -- and its callers wait
+    # on to reach a terminal status).
+    MAX_BATCH_DEADLINE_SECONDS = 25.0
+    batch_deadline = min(
+        timeout + DEFAULT_MAX_RETRIES * DEFAULT_MAX_RETRY_DELAY_SECONDS + 5,
+        MAX_BATCH_DEADLINE_SECONDS,
+    )
+
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
             futures = {
@@ -413,7 +472,10 @@ def generate_explanations(
                     )
                 ] = "__overall__"
 
-            for future in concurrent.futures.as_completed(futures):
+            done, not_done = concurrent.futures.wait(
+                futures, timeout=batch_deadline, return_when=concurrent.futures.ALL_COMPLETED
+            )
+            for future in done:
                 name = futures[future]
                 try:
                     explanation = future.result()
@@ -423,6 +485,17 @@ def generate_explanations(
                         name, _fallback_text(summary), source="fallback", error=str(exc)[:300]
                     )
                 results[name] = explanation.to_dict()
+            for future in not_done:
+                # Still running past the batch deadline (e.g. Gemini is
+                # degraded and every retry+backoff is stacking up). Don't
+                # wait on it -- it's a daemon-owned pool thread and will be
+                # abandoned when the `with` block exits; give the caller
+                # the fallback text now instead of blocking on it.
+                name = futures[future]
+                summary = checks.get(name, {})
+                results[name] = Explanation(
+                    name, _fallback_text(summary), source="fallback", error="batch_deadline_exceeded"
+                ).to_dict()
     except Exception:  # noqa: BLE001 - even the thread pool must never take the report down
         # Total AI-layer outage (e.g. threading unavailable in a restricted
         # sandbox): fall back to synchronous rule-based text for everything.

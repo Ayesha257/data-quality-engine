@@ -11,11 +11,11 @@ from typing import Any
 
 from fpdf import FPDF
 
-_NAVY = (30, 41, 59)
-_SLATE = (71, 85, 105)
-_LIGHT = (241, 245, 249)
+_NAVY = (41, 37, 31)
+_SLATE = (92, 85, 76)
+_LIGHT = (245, 243, 239)
 _WHITE = (255, 255, 255)
-_ACCENT = (37, 99, 235)
+_ACCENT = (31, 138, 127)
 
 _SEVERITY_RGB = {
     "Critical": (185, 28, 28),

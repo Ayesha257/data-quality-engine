@@ -46,6 +46,16 @@ SETTINGS = {
     "logs_dir": REPO_ROOT / "logs",
     "reports_dir": REPO_ROOT / "reports",
     "dataset_dir": DATASET_DIR,
+    # Phase 2 M4: REST API. Where uploaded files land before/while a run
+    # processes them. Generic across any client/dataset -- files are
+    # namespaced by run_id, never by content, so nothing here depends on
+    # what's inside the file.
+    "uploads_dir": REPO_ROOT / "uploads",
+    # Phase 2 M4: client rules management (base_rules.yaml + per-client
+    # overrides). Overridable in tests the same way uploads_dir/reports_dir
+    # already are, so rule-management tests never touch the real config/
+    # directory or its checked-in example_client ruleset.
+    "rules_config_dir": REPO_ROOT / "config",
     # Scoring
     "dimensions": [
         "completeness",

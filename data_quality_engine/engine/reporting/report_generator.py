@@ -260,6 +260,198 @@ def _column_intelligence_block(
     return rows
 
 
+def _ml_readiness_block(readiness: dict[str, Any] | None) -> dict[str, Any] | None:
+    """
+    Reshape a Phase 2 M3 readiness result (see
+    ``phase2/readiness/scorer.py::score_readiness`` and its four
+    sub-analyses) into the "ML Model Readiness Assessment" report section
+    (PHASE2_PLAN.md, "3.6 Report Integration").
+
+    Pure presentation reshaping only -- this module does not import from
+    phase2 and does not compute anything; the caller (a Phase 2
+    orchestrator) already ran ``score_readiness()`` and passes its result
+    in as a plain dict (e.g. via ``dataclasses.asdict``), keeping the
+    "phase2 calls into engine, never the other way" rule from
+    PHASE2_PLAN.md section 2.14 intact.
+
+    Expected shape of ``readiness`` (every key is read defensively --
+    missing/malformed input degrades gracefully to "N/A" values rather
+    than raising):
+
+        {
+          "overall_score": float, "verdict": str,
+          "temporal_score": float, "interval_score": float,
+          "target_score": float, "leakage_score": float,
+          "blockers": [str], "warnings": [str], "recommendations": [str],
+          "temporal": {...TemporalAnalysis fields...},
+          "interval": {...IntervalAnalysis fields...},
+          "target":   {...TargetAnalysis fields...},
+          "leakage":  {...LeakageAnalysis fields...},
+        }
+
+    Returns None if ``readiness`` is falsy, so callers/renderers that
+    never ran M3 (or ran it without a date/target column) simply omit
+    the section instead of rendering a block of "N/A"s.
+    """
+    if not readiness:
+        return None
+
+    def _status(blockers: list[Any] | None) -> str:
+        return "[BLOCKED]" if blockers else "[OK]"
+
+    temporal = readiness.get("temporal") or {}
+    interval = readiness.get("interval") or {}
+    target = readiness.get("target") or {}
+    leakage = readiness.get("leakage") or {}
+
+    verdict = str(readiness.get("verdict", "not_ready")).upper()
+    overall_score = readiness.get("overall_score")
+
+    # ---- Temporal sufficiency ----
+    temporal_blockers = temporal.get("blockers") or []
+    temporal_conclusion = (
+        "; ".join(temporal_blockers)
+        if temporal_blockers
+        else "Sufficient historical data for forecasting."
+    )
+    temporal_section = {
+        "score": readiness.get("temporal_score"),
+        "status": _status(temporal_blockers),
+        "observations": temporal.get("total_observations"),
+        "minimum_observations": 30,
+        "date_range_days": temporal.get("date_range_days"),
+        "implied_frequency": temporal.get("implied_frequency"),
+        "seasonal_cycles_detected": temporal.get("seasonal_cycles_detected"),
+        "minimum_seasonal_cycles": 2,
+        "conclusion": temporal_conclusion,
+    }
+
+    # ---- Interval regularity ----
+    interval_blockers = interval.get("blockers") or []
+    interval_conclusion = (
+        "; ".join(interval_blockers)
+        if interval_blockers
+        else (
+            "Perfectly regular intervals."
+            if interval.get("regularity_score") == 1.0
+            else "Mostly regular intervals with some gaps."
+        )
+    )
+    interval_section = {
+        "score": readiness.get("interval_score"),
+        "status": _status(interval_blockers),
+        "frequency": interval.get("inferred_frequency"),
+        "missing_intervals": interval.get("missing_intervals"),
+        "duplicate_timestamps": interval.get("duplicate_timestamps"),
+        "regularity_score": interval.get("regularity_score"),
+        "conclusion": interval_conclusion,
+    }
+
+    # ---- Target integrity ----
+    target_blockers = target.get("blockers") or []
+    target_conclusion = (
+        "; ".join(target_blockers) if target_blockers else "Target quality acceptable."
+    )
+    target_section = {
+        "score": readiness.get("target_score"),
+        "status": _status(target_blockers),
+        "column": target.get("column_name"),
+        "null_pct": target.get("null_pct"),
+        "null_status": "OK" if (target.get("null_pct") or 0) <= 10 else "WARNING",
+        "zero_pct": target.get("zero_pct"),
+        "zero_status": "OK" if (target.get("zero_pct") or 0) <= 50 else "WARNING",
+        "infinite_count": target.get("infinite_count"),
+        "infinite_status": "OK" if not (target.get("infinite_count") or 0) else "BLOCKED",
+        "variance": target.get("variance"),
+        "variance_status": "OK" if (target.get("variance") or 0) > 1e-9 else "WARNING",
+        "outlier_pct": target.get("outlier_pct"),
+        "outlier_status": "OK" if (target.get("outlier_pct") or 0) <= 20 else "WARNING",
+        "conclusion": target_conclusion,
+    }
+
+    # ---- Leakage & cardinality ----
+    concern_level = leakage.get("concern_level", "none")
+    leakage_status = {"none": "[OK]", "warning": "[WARNING]", "blocker": "[BLOCKED]"}.get(
+        concern_level, "[OK]"
+    )
+    perfect_corr = leakage.get("perfect_correlation_features") or []
+    high_card = leakage.get("high_cardinality_features") or []
+    if perfect_corr:
+        leakage_conclusion = "Leakage detected: " + ", ".join(perfect_corr)
+    elif high_card or leakage.get("identifier_features"):
+        leakage_conclusion = "No leakage detected, but review flagged high-cardinality/identifier columns."
+    else:
+        leakage_conclusion = "No leakage detected."
+    leakage_section = {
+        "score": readiness.get("leakage_score"),
+        "status": leakage_status,
+        "perfect_correlation_features": perfect_corr or "None",
+        "high_cardinality_features": high_card or "None",
+        "identifier_features": leakage.get("identifier_features") or "None",
+        "conclusion": leakage_conclusion,
+    }
+
+    recommendations = readiness.get("recommendations") or []
+
+    lines = [
+        "ML Model Readiness Assessment",
+        "",
+        f"Recommendation: {verdict}",
+        f"Overall Score: {overall_score}/100",
+        "",
+        f"Temporal Sufficiency: {temporal_section['score']} {temporal_section['status']}",
+        f"  - Observations: {temporal_section['observations']} (minimum: {temporal_section['minimum_observations']})",
+        f"  - Date Range: {temporal_section['date_range_days']} days",
+        f"  - Seasonal Cycles: {temporal_section['seasonal_cycles_detected']}",
+        f"  - Conclusion: {temporal_section['conclusion']}",
+        "",
+        f"Interval Regularity: {interval_section['score']} {interval_section['status']}",
+        f"  - Frequency: {interval_section['frequency']}",
+        f"  - Missing Intervals: {interval_section['missing_intervals']}",
+        f"  - Duplicate Timestamps: {interval_section['duplicate_timestamps']}",
+        f"  - Regularity Score: {interval_section['regularity_score']}",
+        f"  - Conclusion: {interval_section['conclusion']}",
+        "",
+        f"Target Integrity: {target_section['score']} {target_section['status']}",
+        f"  - Column: '{target_section['column']}'",
+        f"  - Null %: {target_section['null_pct']}% [{target_section['null_status']}]",
+        f"  - Zero %: {target_section['zero_pct']}% [{target_section['zero_status']}]",
+    ]
+    if target_section.get("infinite_count"):
+        lines.append(
+            f"  - Infinite values: {target_section['infinite_count']} [{target_section['infinite_status']}]"
+        )
+    lines += [
+        f"  - Variance: {target_section['variance']} [{target_section['variance_status']}]",
+        f"  - Outliers: {target_section['outlier_pct']}% [{target_section['outlier_status']}]",
+        f"  - Conclusion: {target_section['conclusion']}",
+        "",
+        f"Leakage & Cardinality: {leakage_section['score']} {leakage_section['status']}",
+        f"  - Perfect Correlation Features: {leakage_section['perfect_correlation_features']}",
+        f"  - High Cardinality Features: {leakage_section['high_cardinality_features']}",
+        f"  - Conclusion: {leakage_section['conclusion']}",
+        "",
+        "Recommendations:",
+    ]
+    if recommendations:
+        lines.extend(f"  {i}. {rec}" for i, rec in enumerate(recommendations, start=1))
+    else:
+        lines.append("  (none)")
+
+    return {
+        "verdict": verdict,
+        "overall_score": overall_score,
+        "temporal": temporal_section,
+        "interval": interval_section,
+        "target": target_section,
+        "leakage": leakage_section,
+        "blockers": readiness.get("blockers") or [],
+        "warnings": readiness.get("warnings") or [],
+        "recommendations": recommendations,
+        "text": "\n".join(lines),
+    }
+
+
 def build_report_data(
     *,
     filepath: str,
@@ -274,6 +466,7 @@ def build_report_data(
     score: dict[str, Any],
     engine_version: str = "Phase 1",
     sheet_disclosure: dict[str, Any] | None = None,
+    readiness: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     check_results_by_name: check_name -> list[CheckResult], covering every
@@ -285,6 +478,12 @@ def build_report_data(
     fuzzy_results: column -> {"remap_rows": int, "clusters": int, "mapping_sample": [...]}
         or None if fuzzy standardization wasn't run.
     score: the exact dict returned by scoring.compute_data_quality_score().
+    readiness: optional Phase 2 M3 readiness result (see
+        ``_ml_readiness_block`` for the expected shape) produced by
+        ``phase2.readiness.scorer.score_readiness()``. None (default) if
+        M3 wasn't run for this file (e.g. no target/date column
+        configured) -- in that case the "ml_readiness" key is omitted
+        from the report rather than being filled with placeholder data.
     """
     now = datetime.now()
     rows, cols = df_shape
@@ -425,6 +624,7 @@ def build_report_data(
             "dimensions_excluded": score.get("dimensions_excluded", []),
         },
         "sheet_disclosure": sheet_disclosure or {},
+        "ml_readiness": _ml_readiness_block(readiness),
         "privacy_risk": score.get("privacy_risk"),
         "pii": pii_block,
         "fuzzy": fuzzy_block,

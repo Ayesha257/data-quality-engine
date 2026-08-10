@@ -194,3 +194,8 @@ OneDrive_1_26-01-2026 - latest data set/
 
 phase2_dev.db
 *.db
+config/clients/
+*.bak
+*.db-shm
+*.db-wal
+uploads/

@@ -1,0 +1,95 @@
+import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext.jsx";
+import { LogoMark } from "../components/Layout.jsx";
+
+export default function LoginPage() {
+  const { login, status, error } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [clientId, setClientId] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const ok = await login({ apiKey: apiKey.trim(), clientId: clientId.trim() });
+    if (ok) navigate(location.state?.from?.pathname || "/upload", { replace: true });
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-ink-950">
+      <div className="absolute inset-0 bg-scan-grid bg-[length:36px_36px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/60 to-transparent animate-scan" />
+
+      <div className="relative w-full max-w-sm mx-4">
+        <div className="flex flex-col items-center mb-8">
+          <div className="mb-3">
+            <LogoMark size={40} />
+          </div>
+          <h1 className="font-display text-xl font-semibold text-mist-100">DQE Console</h1>
+          <p className="text-sm text-mist-400 mt-1">Sign in to run and review data quality scans</p>
+        </div>
+
+        <form onSubmit={submit} className="panel p-6 space-y-4">
+          <div>
+            <label className="field-label" htmlFor="clientId">
+              Client ID
+            </label>
+            <input
+              id="clientId"
+              className="field-input font-mono"
+              placeholder="acme_corp"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="apiKey">
+              API Key
+            </label>
+            <div className="relative">
+              <input
+                id="apiKey"
+                type={showKey ? "text" : "password"}
+                className="field-input font-mono pr-16"
+                placeholder="sk_live_..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey((s) => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-mist-400 hover:text-mist-200 px-2 py-1"
+              >
+                {showKey ? "Hide" : "Show"}
+              </button>
+            </div>
+            <p className="field-hint">
+              Issued by your admin via <code className="text-mist-300">DQE_API_KEYS</code>. An
+              admin key (scope <code className="text-mist-300">*</code>) works with any Client ID.
+            </p>
+          </div>
+
+          {error && (
+            <div className="text-sm text-rose-500 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <button type="submit" className="btn-primary w-full" disabled={status === "checking"}>
+            {status === "checking" ? "Verifying…" : "Sign in"}
+          </button>
+        </form>
+
+        <p className="text-center text-xs text-mist-400 mt-6 font-mono">
+          Data Quality Engine · Phase 2 M4 REST API
+        </p>
+      </div>
+    </div>
+  );
+}

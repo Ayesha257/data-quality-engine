@@ -1,0 +1,101 @@
+import axios from "axios";
+
+// In dev, Vite's proxy (vite.config.js) forwards /api/* to the FastAPI
+// backend, so no CORS setup is required at all. For a production build,
+// set VITE_API_BASE_URL to the deployed API's origin (e.g.
+// https://api.yourcompany.com) and make sure CORSMiddleware is enabled
+// there — see backend_patches/README.md in this delivery.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+
+export const STORAGE_KEYS = {
+  apiKey: "dqe_api_key",
+  clientId: "dqe_client_id",
+};
+
+const client = axios.create({ baseURL: BASE_URL });
+
+client.interceptors.request.use((config) => {
+  const apiKey = localStorage.getItem(STORAGE_KEYS.apiKey);
+  if (apiKey) config.headers["X-API-Key"] = apiKey;
+  return config;
+});
+
+client.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    // Normalize FastAPI's {"detail": "..."} into a plain Error message so
+    // every page can just do `catch (e) { setError(e.message) }`.
+    const detail = err?.response?.data?.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
+      : detail || err.message || "Unexpected error.";
+    return Promise.reject(new Error(message));
+  }
+);
+
+// ---------------------------------------------------------------------
+// Endpoint bindings — every call here maps 1:1 to a route in
+// data_quality_engine/phase2/api/routes.py. See backend_patches/ for the
+// two additive endpoints (CORS + list-runs) this frontend also expects.
+// ---------------------------------------------------------------------
+
+export const api = {
+  health: () => client.get("/health").then((r) => r.data),
+
+  // Used as a lightweight "does this key work" check on the login screen.
+  verifyKey: (clientId) =>
+    client.get(`/v1/clients/${encodeURIComponent(clientId)}/rules`).then((r) => r.data),
+
+  uploadFile: ({ clientId, file, sheetName, targetColumn, dateColumn, writeReport, geminiApiKey }) => {
+    const form = new FormData();
+    form.append("file", file);
+    const params = { client_id: clientId, write_report: writeReport };
+    if (sheetName) params.sheet_name = sheetName;
+    if (targetColumn) params.target_column = targetColumn;
+    if (dateColumn) params.date_column = dateColumn;
+    if (geminiApiKey) params.gemini_api_key = geminiApiKey;
+    return client
+      .post("/v1/files/upload", form, {
+        params,
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
+
+  getRunStatus: (runId) => client.get(`/v1/runs/${runId}/status`).then((r) => r.data),
+
+  getRunResults: (runId) => client.get(`/v1/runs/${runId}/results`).then((r) => r.data),
+
+  // A plain <a href> can't attach the X-API-Key header, and the backend
+  // (correctly) only accepts auth via that header — so we fetch the HTML
+  // report as an authenticated blob and hand back an object URL the UI
+  // can open in a new tab or drop into an <iframe src=...>. Caller should
+  // URL.revokeObjectURL(...) it when done (see RunDetailPage).
+  fetchReportBlobUrl: (runId, sheetName) => {
+    const params = sheetName ? { sheet_name: sheetName } : {};
+    return client
+      .get(`/v1/runs/${runId}/report`, { params, responseType: "blob" })
+      .then((r) => URL.createObjectURL(r.data));
+  },
+
+  // Requires the list-runs endpoint added in backend_patches/routes.py.
+  // Response is { client_id, runs: [...] } — unwrap to the array here so
+  // pages can just map over the result.
+  listRuns: (clientId) =>
+    client.get(`/v1/clients/${encodeURIComponent(clientId)}/runs`).then((r) => r.data.runs),
+
+  getClientRules: (clientId) =>
+    client.get(`/v1/clients/${encodeURIComponent(clientId)}/rules`).then((r) => r.data),
+
+  dryRunRules: (clientId, rulesYaml) =>
+    client
+      .post(`/v1/clients/${encodeURIComponent(clientId)}/rules/dry-run`, { rules_yaml: rulesYaml })
+      .then((r) => r.data),
+
+  saveClientRules: (clientId, rulesYaml) =>
+    client
+      .post(`/v1/clients/${encodeURIComponent(clientId)}/rules`, { rules_yaml: rulesYaml })
+      .then((r) => r.data),
+};
+
+export default client;

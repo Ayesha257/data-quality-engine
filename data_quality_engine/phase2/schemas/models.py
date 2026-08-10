@@ -117,7 +117,12 @@ class RunRecordSchema(BaseModel):
     rows_processed: int | None = None
     cols_processed: int | None = None
     overall_score: float | None = None
-    dimension_scores: dict[str, float] | None = None
+    # Each dimension is a rich object -- {score, passed, total, skipped,
+    # errored, weight, available} -- as produced by engine/scoring.py, not
+    # a bare float. `Any` here (rather than importing the API-layer
+    # DimensionScore model) avoids a schemas/models.py -> api/schemas.py
+    # import, which would invert this module's existing layering.
+    dimension_scores: dict[str, dict[str, Any]] | None = None
     error_message: str | None = None
     started_at: datetime
     completed_at: datetime | None = None

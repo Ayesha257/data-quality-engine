@@ -73,12 +73,65 @@ def init_db(
             )
         url = _default_sqlite_url()
 
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    connect_args: dict = {}
+    if url.startswith("sqlite"):
+        connect_args = {
+            "check_same_thread": False,
+            # SQLite serializes writers at the file level. Phase 2 M4 (the
+            # REST API) is the first caller to genuinely run concurrent
+            # DB sessions against this engine -- a background pipeline
+            # thread writing RunRecord/RunManifest/history rows while an
+            # HTTP request thread polls run status at the same time.
+            # Python's sqlite3 driver defaults to a 5-second busy timeout,
+            # but under load (a tight status-polling loop, or several
+            # runs/report-writes overlapping) that's not always enough,
+            # and a caller that hits it gets an immediate
+            # "database is locked" OperationalError -- which, several
+            # layers up, several of Phase 2's "never raises" functions
+            # were swallowing as a generic failure rather than retrying,
+            # which looked exactly like a hang from the caller's side.
+            # 30s gives SQLite's own internal retry loop enough room to
+            # wait out a short write instead of erroring immediately.
+            "timeout": 30,
+        }
     _engine = create_engine(url, echo=echo, connect_args=connect_args, future=True)
+
+    if url.startswith("sqlite"):
+        # WAL mode lets readers proceed concurrently with a writer instead
+        # of blocking each other on every single statement (SQLite's
+        # default rollback-journal mode does full-database write locks).
+        # This is what actually fixes concurrent-access contention here;
+        # the busy_timeout above is the backstop for whatever contention
+        # remains even under WAL (e.g. two writers).
+        from sqlalchemy import event
+
+        @event.listens_for(_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):  # noqa: ANN001, ARG001
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.close()
 
     Base.metadata.create_all(_engine)
 
-    _SessionFactory = sessionmaker(bind=_engine, autoflush=False, autocommit=False, future=True)
+    # expire_on_commit=False is required because get_session() commits AND
+    # closes the session before control returns to the caller. With the
+    # SQLAlchemy default (expire_on_commit=True), every attribute on an ORM
+    # object is marked "expired" the instant commit() runs, so the very next
+    # attribute access (e.g. user.id in auth_routes.register()) tries to
+    # lazily reload from the DB -- but the session is already closed, which
+    # raises sqlalchemy.orm.exc.DetachedInstanceError. Turning this off means
+    # committed attribute values simply stay cached on the instance, which is
+    # exactly what every "with get_session() as session: ... return row"
+    # caller in this codebase (auth.py, routes.py, jobs.py, history.py)
+    # already assumes. This does not change query correctness: each request
+    # still opens a brand-new session via get_session()/get_session_dependency(),
+    # so there's no risk of reading stale data across requests -- the only
+    # thing that changes is that attributes read *after* a session closes no
+    # longer trigger a (doomed) implicit reload.
+    _SessionFactory = sessionmaker(
+        bind=_engine, autoflush=False, autocommit=False, future=True, expire_on_commit=False
+    )
     return _engine
 
 

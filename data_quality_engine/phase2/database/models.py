@@ -24,11 +24,13 @@ before unless something explicitly imports and uses this module.
 from __future__ import annotations
 
 import enum
+import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Enum,
     Float,
@@ -39,9 +41,41 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+_utcnow_lock = threading.Lock()
+_utcnow_last: datetime | None = None
+
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """
+    Current UTC time, guaranteed strictly increasing within this process.
+
+    Plain `datetime.now(timezone.utc)` can return the *same* value on two
+    rapid successive calls whenever the OS clock's resolution is coarser
+    than the gap between calls (this is a real, observed behavior, not
+    just a theoretical edge case -- e.g. on Windows). Phase 2 relies on
+    `completed_at` to determine "the most recent run" for a client/file
+    (see phase2/history.py::get_score_trend, which orders by
+    `completed_at DESC`). A tied timestamp between two runs saved back to
+    back -- exactly what happens when a report is generated and its run
+    is recorded, then immediately queried again -- makes that ordering
+    ambiguous, and the database is free to return either row first. That
+    previously caused history lookups to occasionally return a stale
+    "previous" run instead of the one that was just saved.
+
+    Nudging the clock forward by a microsecond whenever it would
+    otherwise tie (or go backward, e.g. across a clock adjustment) keeps
+    every timestamp generated here -- and therefore every ordering query
+    that depends on one -- unambiguous, regardless of the underlying
+    clock's resolution. This works for any dataset or run cadence because
+    it doesn't depend on real-world timing at all, only on call order.
+    """
+    global _utcnow_last
+    with _utcnow_lock:
+        now = datetime.now(timezone.utc)
+        if _utcnow_last is not None and now <= _utcnow_last:
+            now = _utcnow_last + timedelta(microseconds=1)
+        _utcnow_last = now
+        return now
 
 
 def _new_uuid() -> str:
@@ -50,6 +84,27 @@ def _new_uuid() -> str:
 
 class Base(DeclarativeBase):
     """Shared declarative base for every Phase 2 table."""
+
+
+class User(Base):  # noqa: F821 - `Base` is defined earlier in models.py
+    """A registered account. client_id is derived once at signup (see
+    auth.derive_client_id) and never changes -- every run, rule set, and
+    canonical mapping this user creates is scoped under it."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)  # noqa: F821
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    client_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    created_at: Mapped["datetime"] = mapped_column(DateTime(timezone=True), default=_utcnow)  # noqa: F821
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<User id={self.id} email={self.email} client_id={self.client_id}>"
+
 
 
 class RunStatus(str, enum.Enum):

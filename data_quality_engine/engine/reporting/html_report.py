@@ -16,27 +16,48 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+# Feather-style line icons (24x24, stroke=currentColor) -- replace the old
+# emoji HTML entities (&#128202; etc.) so the report renders identically on
+# every OS/browser instead of depending on the system's emoji font, and
+# reads as a professional document rather than a chat message.
+_ICONS = {
+    "clipboard": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 11h6M9 15h6"/></svg>',
+    "shield-check": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+    "plug": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v4M15 2v4M7 8h10l-1 5a5 5 0 0 1-8 0L7 8Z"/><path d="M12 17v5"/></svg>',
+    "scale": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 7h14M5 7l-3 7a3.5 3.5 0 0 0 6 0L5 7ZM19 7l-3 7a3.5 3.5 0 0 0 6 0L19 7Z"/></svg>',
+    "key": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.6 12.4 8.4-8.4M16 4l3 3M13 7l3 3"/></svg>',
+    "grid": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+    "trend-up": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 6-6 4 4 8-8"/><path d="M15 6h6v6"/></svg>',
+    "clock": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
+    "bar-chart": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>',
+    "layers": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>',
+}
+
+
+def _icon(name: str) -> str:
+    return _ICONS.get(name, _ICONS["bar-chart"])
+
 _SEVERITY_COLORS = {
     "Critical": "#DC2626",
     "High": "#EA580C",
     "Medium": "#D97706",
-    "Low": "#65A30D",
-    "None": "#059669",
+    "Low": "#78716C",
+    "None": "#28A89E",
 }
 _RATING_COLORS = {
-    "Excellent": "#059669",
+    "Excellent": "#28A89E",
     "Good": "#65A30D",
     "Fair": "#D97706",
     "Poor": "#DC2626",
-    "Unrated": "#6B7280",
+    "Unrated": "#78716C",
 }
 _READINESS_COLORS = {
-    "Ready": "#059669",
+    "Ready": "#28A89E",
     "Ready with Minor Cleaning": "#65A30D",
     "Ready with Moderate Cleaning": "#D97706",
     "Not Recommended": "#DC2626",
 }
-_RISK_COLORS = {"high": "#DC2626", "medium": "#D97706", "low": "#65A30D", "none": "#059669"}
+_RISK_COLORS = {"high": "#DC2626", "medium": "#D97706", "low": "#65A30D", "none": "#28A89E"}
 
 # Enterprise wording map -- cosmetic only, does not touch check_name keys
 # used anywhere else in the pipeline.
@@ -54,14 +75,14 @@ _ENTERPRISE_LABEL = {
 }
 
 _DIM_ICONS = {
-    "completeness": "&#128203;",
-    "validity": "&#9989;",
-    "type_reliability": "&#128268;",
-    "consistency": "&#9878;",
-    "uniqueness": "&#128273;",
-    "schema_quality": "&#127959;",
-    "outlier_risk": "&#128200;",
-    "freshness": "&#8987;",
+    "completeness": _icon("clipboard"),
+    "validity": _icon("shield-check"),
+    "type_reliability": _icon("plug"),
+    "consistency": _icon("scale"),
+    "uniqueness": _icon("key"),
+    "schema_quality": _icon("grid"),
+    "outlier_risk": _icon("trend-up"),
+    "freshness": _icon("clock"),
 }
 
 _ROLE_LABELS = {
@@ -102,7 +123,7 @@ def _score_ring(score: float | None, size: int = 160) -> str:
         display = f"{score:.1f}"
     circumference = 2 * 3.14159 * 52
     offset = circumference * (1 - pct / 100)
-    color = "#059669" if pct >= 90 else "#65A30D" if pct >= 75 else "#D97706" if pct >= 55 else "#DC2626"
+    color = "#28A89E" if pct >= 90 else "#65A30D" if pct >= 75 else "#D97706" if pct >= 55 else "#DC2626"
     grade = _grade_letter(score)
     return f"""
     <div class="gauge-wrap">
@@ -147,10 +168,10 @@ def _kpi_card(label: str, score_info: dict[str, Any]) -> str:
     available = score_info.get("available", False)
     weight = score_info.get("weight", 0)
     bar_pct = score if (score is not None and available) else 0
-    color = "#059669" if bar_pct >= 90 else "#65A30D" if bar_pct >= 75 else "#D97706" if bar_pct >= 55 else "#DC2626"
+    color = "#28A89E" if bar_pct >= 90 else "#65A30D" if bar_pct >= 75 else "#D97706" if bar_pct >= 55 else "#DC2626"
     score_text = f"{score:.0f}" if (score is not None and available) else "N/A"
     status = "Assessed" if available else "Not Scorable"
-    icon = _DIM_ICONS.get(label, "&#128202;")
+    icon = _DIM_ICONS.get(label, _icon("bar-chart"))
     return f"""
     <div class="kpi-card">
       <div class="kpi-icon" style="background:{color}22;color:{color}">{icon}</div>
@@ -162,7 +183,7 @@ def _kpi_card(label: str, score_info: dict[str, Any]) -> str:
     """
 
 
-def _stat_card(icon: str, number: str, label: str, color: str = "#2563EB") -> str:
+def _stat_card(icon: str, number: str, label: str, color: str = "#28A89E") -> str:
     return f"""
     <div class="stat-card">
       <div class="stat-card-icon" style="background:{color}1A;color:{color}">{icon}</div>
@@ -175,9 +196,9 @@ def _stat_card(icon: str, number: str, label: str, color: str = "#2563EB") -> st
 
 
 def _rule_row(name: str, summary: dict[str, Any]) -> str:
-    color = _SEVERITY_COLORS.get(summary["severity"], "#6B7280")
+    color = _SEVERITY_COLORS.get(summary["severity"], "#97907F")
     status = "Passed" if summary["severity"] == "None" else ("Warning" if summary["severity"] in ("Low", "Medium") else "Failed")
-    status_color = "#059669" if status == "Passed" else ("#D97706" if status == "Warning" else "#DC2626")
+    status_color = "#28A89E" if status == "Passed" else ("#D97706" if status == "Warning" else "#DC2626")
     label = _ENTERPRISE_LABEL.get(name, summary["display_name"])
     return f"""
     <tr>
@@ -192,7 +213,7 @@ def _rule_row(name: str, summary: dict[str, Any]) -> str:
 
 
 def _check_card(name: str, summary: dict[str, Any]) -> str:
-    color = _SEVERITY_COLORS.get(summary["severity"], "#6B7280")
+    color = _SEVERITY_COLORS.get(summary["severity"], "#97907F")
     cols = ", ".join(summary["affected_columns"][:10]) or "None"
     label = _ENTERPRISE_LABEL.get(name, summary["display_name"])
     samples_html = ""
@@ -225,7 +246,7 @@ def _check_card(name: str, summary: dict[str, Any]) -> str:
 
 
 def _matrix_row(row: dict[str, Any]) -> str:
-    color = _SEVERITY_COLORS.get(row["severity"], "#6B7280")
+    color = _SEVERITY_COLORS.get(row["severity"], "#97907F")
     return f"""
     <tr>
       <td>{row['column']}</td>
@@ -239,7 +260,7 @@ def _matrix_row(row: dict[str, Any]) -> str:
 
 
 def _issue_row(i: int, issue: dict[str, Any]) -> str:
-    color = _SEVERITY_COLORS.get(issue["severity"], "#6B7280")
+    color = _SEVERITY_COLORS.get(issue["severity"], "#97907F")
     return f"""
     <tr>
       <td>{i}</td>
@@ -254,18 +275,18 @@ def _issue_row(i: int, issue: dict[str, Any]) -> str:
 
 def _duplicate_section(da: dict[str, Any]) -> str:
     fr = da.get("full_row", {})
-    fr_color = "#059669" if fr.get("issues_found", 0) == 0 else "#DC2626"
+    fr_color = "#28A89E" if fr.get("issues_found", 0) == 0 else "#DC2626"
     fr_status = "No exact duplicate records found" if fr.get("issues_found", 0) == 0 else "Exact duplicate records detected"
 
     bk_rows = ""
     for bk in da.get("business_keys", []):
-        color = "#059669" if bk["status"] == "passed" else "#DC2626"
+        color = "#28A89E" if bk["status"] == "passed" else "#DC2626"
         notes = ", ".join(bk["evidence_notes"]) or "Meets configured confidence threshold"
         conf = f"{bk['confidence_pct']}%" if bk["confidence_pct"] is not None else "Manually configured"
         bk_rows += f"""
         <tr>
           <td><b>{bk['column']}</b></td>
-          <td>{_badge('Business Key', '#2563EB')}</td>
+          <td>{_badge('Business Key', '#28A89E')}</td>
           <td>{conf}</td>
           <td>{bk['issues_found']}</td>
           <td>{bk['rows_sharing_key']}</td>
@@ -288,8 +309,8 @@ def _duplicate_section(da: dict[str, Any]) -> str:
         own to be flagged).
       </p>
       <div class="two-col" style="margin-bottom:18px">
-        {_stat_card('&#128209;', str(fr.get('issues_found', 0)), fr_status, fr_color)}
-        {_stat_card('&#128273;', str(da.get('business_keys_evaluated', 0)), 'Business key column(s) confirmed by evidence', '#2563EB')}
+        {_stat_card(_icon("layers"), str(fr.get('issues_found', 0)), fr_status, fr_color)}
+        {_stat_card(_icon("key"), str(da.get('business_keys_evaluated', 0)), 'Business key column(s) confirmed by evidence', '#28A89E')}
       </div>
       <h4>Business-Key Duplicate Findings</h4>
       <table class="striped">
@@ -307,7 +328,7 @@ def _column_intelligence_section(rows: list[dict[str, Any]]) -> str:
     for r in focus[:40]:
         conf = f"{r['confidence_pct']}%" if r["confidence_pct"] is not None else "&mdash;"
         evidence = ", ".join(r["evidence_notes"]) or "Role inferred from name, dtype and cardinality"
-        key_badge = _badge("Business Key", "#2563EB") if r["is_business_key"] else ""
+        key_badge = _badge("Business Key", "#28A89E") if r["is_business_key"] else ""
         body += f"""
         <tr>
           <td><b>{r['column']}</b> {key_badge}</td>
@@ -333,68 +354,71 @@ def _column_intelligence_section(rows: list[dict[str, Any]]) -> str:
 
 _CSS = """
 * { box-sizing: border-box; }
-body { font-family: 'Segoe UI', -apple-system, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #F1F5F9; color: #1E293B; }
+body { font-family: 'Segoe UI', -apple-system, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #F5F3EF; color: #3F3A34; }
 .container { max-width: 1180px; margin: 0 auto; padding: 24px; }
-.hero { background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #1D4ED8 100%); color: white; padding: 40px 24px 32px; text-align: center; }
-.hero-icon { width: 52px; height: 52px; line-height: 52px; border-radius: 14px; background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.3); font-size: 24px; margin: 0 auto 14px; }
-.hero-brand { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #93C5FD; font-weight: 700; margin-bottom: 8px; }
+.hero { background: linear-gradient(135deg, #14181F 0%, #1E2A2E 55%, #1F6D66 100%); color: white; padding: 40px 24px 32px; text-align: center; }
+.hero-icon { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 14px; background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.3); margin: 0 auto 14px; color: #5EDCD2; }
+.hero-icon svg { width: 26px; height: 26px; }
+.hero-brand { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #9DD9D2; font-weight: 700; margin-bottom: 8px; }
 .hero h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
-.hero .subtitle { color: #BFDBFE; font-size: 13.5px; margin-bottom: 20px; }
-.hero-meta { display: flex; justify-content: center; gap: 28px; margin-top: 22px; font-size: 11.5px; color: #93C5FD; flex-wrap: wrap; text-transform: uppercase; letter-spacing: 0.04em; }
+.hero .subtitle { color: #C9E8E4; font-size: 13.5px; margin-bottom: 20px; }
+.hero-meta { display: flex; justify-content: center; gap: 28px; margin-top: 22px; font-size: 11.5px; color: #9DD9D2; flex-wrap: wrap; text-transform: uppercase; letter-spacing: 0.04em; }
 .score-hero { display: flex; align-items: center; justify-content: center; gap: 28px; flex-wrap: wrap; margin-top: 8px; }
 .gauge-wrap { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.25)); }
 .readiness-badge { color: white; font-size: 14px; font-weight: 700; padding: 8px 16px; border-radius: 8px; display: inline-block; }
-.card { background: white; border-radius: 16px; padding: 26px; margin-bottom: 20px; box-shadow: 0 4px 16px rgba(15,23,42,0.06); border: 1px solid #E2E8F0; }
-h2 { font-size: 19px; font-weight: 800; border-left: 4px solid #2563EB; padding-left: 12px; margin-top: 0; margin-bottom: 8px; letter-spacing: -0.01em; }
-h3 { font-size: 15px; font-weight: 700; margin: 0; }
-h4 { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748B; margin: 18px 0 10px; }
+.card { background: white; border-radius: 16px; padding: 26px; margin-bottom: 20px; box-shadow: 0 4px 16px rgba(41,37,31,0.06); border: 1px solid #E7E2DA; }
+h2 { font-size: 19px; font-weight: 800; border-left: 4px solid #28A89E; padding-left: 12px; margin-top: 0; margin-bottom: 8px; letter-spacing: -0.01em; color: #29251F; }
+h3 { font-size: 15px; font-weight: 700; margin: 0; color: #29251F; }
+h4 { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #79726A; margin: 18px 0 10px; }
 p { font-size: 13.5px; line-height: 1.65; }
-.section-intro { color: #475569; margin-bottom: 16px; }
+.section-intro { color: #5C554C; margin-bottom: 16px; }
 .chart-box { position: relative; margin: 0 auto; }
 .badge { color: white; font-size: 10.5px; font-weight: 700; padding: 4px 10px; border-radius: 20px; display: inline-block; white-space: nowrap; }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
-.kpi-card { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 14px; padding: 16px; transition: transform .15s ease, box-shadow .15s ease; }
-.kpi-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(15,23,42,0.10); border-color: #CBD5E1; }
-.kpi-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 10px; }
-.kpi-label { font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
-.kpi-score { font-size: 26px; font-weight: 800; margin: 4px 0; letter-spacing: -0.02em; }
-.kpi-bar-track { background: #E2E8F0; border-radius: 6px; height: 6px; overflow: hidden; }
+.kpi-card { background: #FAF8F5; border: 1px solid #E7E2DA; border-radius: 14px; padding: 16px; transition: transform .15s ease, box-shadow .15s ease; }
+.kpi-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(41,37,31,0.10); border-color: #D8D1C4; }
+.kpi-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+.kpi-icon svg { width: 17px; height: 17px; }
+.kpi-label { font-size: 11px; color: #79726A; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
+.kpi-score { font-size: 26px; font-weight: 800; margin: 4px 0; letter-spacing: -0.02em; color: #29251F; }
+.kpi-bar-track { background: #E7E2DA; border-radius: 6px; height: 6px; overflow: hidden; }
 .kpi-bar-fill { height: 100%; border-radius: 6px; }
-.kpi-meta { font-size: 10px; color: #94A3B8; margin-top: 6px; }
-.stat-card { display: flex; align-items: center; gap: 14px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 14px; padding: 16px; flex: 1; transition: box-shadow .15s ease; }
-.stat-card:hover { box-shadow: 0 10px 24px rgba(15,23,42,0.08); }
-.stat-card-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
-.stat-card-num { font-size: 22px; font-weight: 800; }
-.stat-card-label { font-size: 12px; color: #64748B; max-width: 240px; }
-.check-card { border: 1px solid #E2E8F0; border-radius: 12px; padding: 4px 18px 18px; margin-bottom: 12px; }
+.kpi-meta { font-size: 10px; color: #A29A8D; margin-top: 6px; }
+.stat-card { display: flex; align-items: center; gap: 14px; background: #FAF8F5; border: 1px solid #E7E2DA; border-radius: 14px; padding: 16px; flex: 1; transition: box-shadow .15s ease; }
+.stat-card:hover { box-shadow: 0 10px 24px rgba(41,37,31,0.08); }
+.stat-card-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-card-icon svg { width: 20px; height: 20px; }
+.stat-card-num { font-size: 22px; font-weight: 800; color: #29251F; }
+.stat-card-label { font-size: 12px; color: #79726A; max-width: 240px; }
+.check-card { border: 1px solid #E7E2DA; border-radius: 12px; padding: 4px 18px 18px; margin-bottom: 12px; }
 .check-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; padding: 14px 0; }
 .check-header::-webkit-details-marker { display: none; }
 .check-stats { display: flex; gap: 28px; margin: 12px 0; }
-.stat-num { display: block; font-size: 22px; font-weight: 700; }
-.stat-label { font-size: 11px; color: #64748B; }
-.sample-list { font-size: 12.5px; color: #475569; padding-left: 18px; }
-.evidence-cell { font-size: 12px; color: #475569; }
-.empty-state { text-align: center; color: #94A3B8; padding: 18px !important; font-style: italic; }
+.stat-num { display: block; font-size: 22px; font-weight: 700; color: #29251F; }
+.stat-label { font-size: 11px; color: #79726A; }
+.sample-list { font-size: 12.5px; color: #5C554C; padding-left: 18px; }
+.evidence-cell { font-size: 12px; color: #5C554C; }
+.empty-state { text-align: center; color: #A29A8D; padding: 18px !important; font-style: italic; }
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-th { background: #0F172A; color: #E2E8F0; text-align: left; padding: 10px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
-td { padding: 9px 10px; border-bottom: 1px solid #E2E8F0; }
-table.striped tr:nth-child(even) td { background: #F8FAFC; }
-table.striped tr:hover td { background: #EFF6FF; }
-.role-pill { background: #E2E8F0; color: #334155; padding: 2px 9px; border-radius: 12px; font-size: 10.5px; font-weight: 600; }
+th { background: #29251F; color: #EDE9E2; text-align: left; padding: 10px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+td { padding: 9px 10px; border-bottom: 1px solid #E7E2DA; color: #3F3A34; }
+table.striped tr:nth-child(even) td { background: #FAF8F5; }
+table.striped tr:hover td { background: #EAF7F5; }
+.role-pill { background: #E7E2DA; color: #4A4339; padding: 2px 9px; border-radius: 12px; font-size: 10.5px; font-weight: 600; }
 .findings-critical { color: #DC2626; }
-.findings-positive { color: #059669; }
+.findings-positive { color: #1F8A7F; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
 @media (max-width: 800px) { .two-col, .grid-3 { grid-template-columns: 1fr; } }
 .nav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-.nav-sticky { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); border-bottom: 1px solid #E2E8F0; padding: 10px 24px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-.nav a, .nav-sticky a { font-size: 11.5px; color: #1D4ED8; text-decoration: none; background: #EFF6FF; padding: 6px 12px; border-radius: 20px; font-weight: 600; }
-.nav a:hover, .nav-sticky a:hover { background: #DBEAFE; }
+.nav-sticky { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); border-bottom: 1px solid #E7E2DA; padding: 10px 24px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.nav a, .nav-sticky a { font-size: 11.5px; color: #1F8A7F; text-decoration: none; background: #EAF7F5; padding: 6px 12px; border-radius: 20px; font-weight: 600; }
+.nav a:hover, .nav-sticky a:hover { background: #D5F0EC; }
 .alert { border-radius: 10px; padding: 12px 16px; font-size: 12.5px; text-align: left; max-width: 760px; margin: 14px auto 0; }
-.alert-warning { background: #FEF3C7; border: 1px solid #F59E0B; color: #92400E; }
-.print-btn { position: fixed; top: 16px; right: 16px; background: #1D4ED8; color: white; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(29,78,216,0.35); z-index: 30; }
-.footer-note { text-align: center; font-size: 11px; color: #94A3B8; padding: 20px 0 40px; }
+.alert-warning { background: #FDF1DB; border: 1px solid #E8A33D; color: #8A5A16; }
+.print-btn { position: fixed; top: 16px; right: 16px; background: #1F8A7F; color: white; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(31,138,127,0.35); z-index: 30; }
+.footer-note { text-align: center; font-size: 11px; color: #A29A8D; padding: 20px 0 40px; }
 @media print { .print-btn, .nav, .nav-sticky { display: none; } }
 """
 
@@ -432,13 +456,13 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     pr_html = ""
     pr_chart_js = ""
     if pr:
-        color = _RISK_COLORS.get(pr.get("risk_level", "none"), "#6B7280")
+        color = _RISK_COLORS.get(pr.get("risk_level", "none"), "#97907F")
         pii_cols = pr.get("columns_with_pii", 0)
         total_cols = pr.get("total_columns", 0) or 1
         clean_cols = max(total_cols - pii_cols, 0)
         pr_html = f"""
         <div class="card" id="privacy-risk">
-          <h2>Sensitive Data &amp; Privacy Risk <span style="font-weight:400;font-size:12.5px;color:#64748B">(reported separately -- never part of the score above)</span></h2>
+          <h2>Sensitive Data &amp; Privacy Risk <span style="font-weight:400;font-size:12.5px;color:#79726A">(reported separately -- never part of the score above)</span></h2>
           <div class="two-col">
             <div>
               {_badge(pr.get('risk_level', 'none').upper(), color)}
@@ -454,7 +478,7 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
           type: 'doughnut',
           data: {{
             labels: ['Sensitive Columns', 'Clean Columns'],
-            datasets: [{{ data: [{pii_cols}, {clean_cols}], backgroundColor: ['{color}', '#E2E8F0'], borderWidth: 0 }}]
+            datasets: [{{ data: [{pii_cols}, {clean_cols}], backgroundColor: ['{color}', '#E7E2DA'], borderWidth: 0 }}]
           }},
           options: {{ plugins: {{ legend: {{ position: 'bottom', labels: {{ boxWidth: 12, font: {{ size: 11 }} }} }} }}, cutout: '65%' }}
         }});
@@ -494,8 +518,8 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     fuzzy = d["fuzzy"]
     pii = d["pii"]
 
-    readiness_color = _READINESS_COLORS.get(sc["readiness"], "#6B7280")
-    rating_color = _RATING_COLORS.get(sc["rating"], "#6B7280")
+    readiness_color = _READINESS_COLORS.get(sc["readiness"], "#97907F")
+    rating_color = _RATING_COLORS.get(sc["rating"], "#97907F")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -507,11 +531,11 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
 <style>{_CSS}</style>
 </head>
 <body>
-<button class="print-btn" onclick="window.print()">Download / Print PDF</button>
+<button class="print-btn" onclick="window.print()">Print Report</button>
 
 <div class="hero">
   <div class="hero-brand">Data Quality Platform</div>
-  <div class="hero-icon">&#128202;</div>
+  <div class="hero-icon">{_icon("bar-chart")}</div>
   <h1>Enterprise Data Quality Assessment</h1>
   <div class="subtitle">{meta['filename']} &middot; Sheet: {meta['sheet_name']}</div>
   {_sheet_disclosure_banner(d.get('sheet_disclosure') or {}, meta['sheet_name'])}
@@ -652,8 +676,8 @@ new Chart(document.getElementById('dimChart'), {{
       label: 'Score',
       data: {dim_scores!r},
       backgroundColor: 'rgba(37,99,235,0.15)',
-      borderColor: '#1D4ED8',
-      pointBackgroundColor: '#1D4ED8',
+      borderColor: '#1F8A7F',
+      pointBackgroundColor: '#1F8A7F',
       borderWidth: 2,
     }}]
   }},
@@ -661,7 +685,7 @@ new Chart(document.getElementById('dimChart'), {{
     responsive: true,
     maintainAspectRatio: false,
     plugins: {{ legend: {{ display: false }}, title: {{ display: true, text: 'Quality Dimension Radar', font: {{ size: 12 }} }} }},
-    scales: {{ r: {{ min: 0, max: 100, ticks: {{ stepSize: 25, backdropColor: 'transparent' }}, grid: {{ color: '#E2E8F0' }} }} }}
+    scales: {{ r: {{ min: 0, max: 100, ticks: {{ stepSize: 25, backdropColor: 'transparent' }}, grid: {{ color: '#E7E2DA' }} }} }}
   }}
 }});
 new Chart(document.getElementById('sevChart'), {{

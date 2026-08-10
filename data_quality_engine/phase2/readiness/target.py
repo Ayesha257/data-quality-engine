@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 NULL_PCT_BLOCK = 30.0
@@ -29,6 +30,11 @@ NEAR_ZERO_VARIANCE = 1e-9
 # column is treated as numeric (allows a handful of stray text cells
 # without failing the whole column).
 NUMERIC_COERCION_MIN_RATIO = 0.99
+# Any non-finite (+inf/-inf) value blocks forecasting outright -- Prophet
+# (and every stats function downstream) breaks on infinities, and their
+# presence usually signals a source-data error (e.g. a #DIV/0! formula
+# result Excel/pandas surfaces as inf) rather than a real observation.
+INFINITE_VALUES_BLOCK = 0
 
 
 def _empty_result(column_name: str, blockers: list[str]) -> "TargetAnalysis":
@@ -39,6 +45,8 @@ def _empty_result(column_name: str, blockers: list[str]) -> "TargetAnalysis":
         null_pct=0.0,
         zero_count=0,
         zero_pct=0.0,
+        infinite_count=0,
+        infinite_pct=0.0,
         outlier_count=0,
         outlier_pct=0.0,
         variance=0.0,
@@ -58,6 +66,8 @@ class TargetAnalysis:
     null_pct: float
     zero_count: int
     zero_pct: float
+    infinite_count: int
+    infinite_pct: float
     outlier_count: int
     outlier_pct: float
     variance: float
@@ -103,12 +113,29 @@ def analyze_target_integrity(
         "numeric (coerced)" if is_numeric else str(series.dtype)
     )
 
-    values = coerced_valid if is_numeric else pd.Series(dtype="float64")
+    all_numeric = coerced_valid if is_numeric else pd.Series(dtype="float64")
+
+    # Non-finite values (+inf/-inf) break every statistic below (variance
+    # comes back NaN, which silently bypasses the near-zero-variance
+    # blocker) and would break Prophet outright, so they are excluded from
+    # the "clean" values used for stats and counted/flagged separately
+    # instead of being treated as ordinary observations.
+    is_finite_mask = np.isfinite(all_numeric) if len(all_numeric) else pd.Series(dtype=bool)
+    infinite_count = int((~is_finite_mask).sum()) if len(all_numeric) else 0
+    infinite_pct = round(100.0 * infinite_count / len(all_numeric), 2) if len(all_numeric) else 0.0
+    values = all_numeric[is_finite_mask] if len(all_numeric) else all_numeric
 
     blockers: list[str] = []
     if not is_numeric:
         blockers.append(
             f"Target column '{target_column}' is not numeric or reliably convertible to numeric."
+        )
+
+    if infinite_count > INFINITE_VALUES_BLOCK:
+        blockers.append(
+            f"{infinite_count} non-finite value(s) (infinity) found in '{target_column}' -- "
+            "likely a source-data error (e.g. a #DIV/0! formula result); "
+            "fix or remove these before forecasting."
         )
 
     zero_count = int((values == 0).sum()) if len(values) else 0
@@ -157,6 +184,8 @@ def analyze_target_integrity(
         null_pct=null_pct,
         zero_count=zero_count,
         zero_pct=zero_pct,
+        infinite_count=infinite_count,
+        infinite_pct=infinite_pct,
         outlier_count=outlier_count,
         outlier_pct=outlier_pct,
         variance=variance,

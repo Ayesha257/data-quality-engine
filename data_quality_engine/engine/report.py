@@ -408,6 +408,106 @@ def _quality_label(score: float | None) -> tuple[str, str, str]:
     return "Critical", "Not Recommended", "critical"
 
 
+def _ml_readiness_html(readiness: dict[str, Any] | None) -> str:
+    """
+    Render the Phase 2 M3 "ML Model Readiness Assessment" card from a
+    ``ReadinessScore``-shaped dict (see phase2/readiness/scorer.py).
+    Returns "" when readiness is None (M3 wasn't run for this file) --
+    the card is omitted entirely rather than showing placeholder/N-A data.
+    """
+    if not readiness:
+        return ""
+
+    verdict = str(readiness.get("verdict", "not_ready")).lower()
+    verdict_sev = {"ready": "none", "caution": "medium", "not_ready": "critical"}.get(
+        verdict, "critical"
+    )
+    verdict_label = verdict.replace("_", " ").upper()
+
+    blockers = readiness.get("blockers") or []
+    warnings = readiness.get("warnings") or []
+    recommendations = readiness.get("recommendations") or []
+
+    temporal = readiness.get("temporal") or {}
+    interval = readiness.get("interval") or {}
+    target = readiness.get("target") or {}
+    leakage = readiness.get("leakage") or {}
+
+    def _row(label: str, value: Any) -> str:
+        return f"<p><b>{_esc(label)}:</b> {_esc(str(value))}</p>"
+
+    blockers_html = (
+        "".join(f"<li>{_esc(b)}</li>" for b in blockers) if blockers else "<li>None</li>"
+    )
+    warnings_html = (
+        "".join(f"<li>{_esc(w)}</li>" for w in warnings) if warnings else "<li>None</li>"
+    )
+    recs_html = (
+        "".join(f"<li>{_esc(r)}</li>" for r in recommendations)
+        if recommendations
+        else "<li>None</li>"
+    )
+
+    return f"""
+  <div class="card">
+    <h2>ML Model Readiness Assessment <span class="h2-note">(Prophet forecasting preconditions -- separate from the Data Quality Score above)</span></h2>
+    {_severity_badge(verdict_label, verdict_sev)}
+    <p style="margin-top:12px"><b>Overall Score:</b> {readiness.get('overall_score', 0):.1f} / 100</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Temporal</div><div class="kpi-score">{readiness.get('temporal_score', 0):.0f}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Interval</div><div class="kpi-score">{readiness.get('interval_score', 0):.0f}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Target</div><div class="kpi-score">{readiness.get('target_score', 0):.0f}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Leakage</div><div class="kpi-score">{readiness.get('leakage_score', 0):.0f}</div></div>
+    </div>
+
+    <div class="two-col" style="margin-top:16px">
+      <div>
+        <h4>Temporal Sufficiency</h4>
+        {_row("Observations", temporal.get("total_observations", "-"))}
+        {_row("Date range (days)", temporal.get("date_range_days", "-"))}
+        {_row("Implied frequency", temporal.get("implied_frequency", "-"))}
+        {_row("Seasonal cycles detected", temporal.get("seasonal_cycles_detected", "-"))}
+      </div>
+      <div>
+        <h4>Interval Regularity</h4>
+        {_row("Inferred frequency", interval.get("inferred_frequency", "-"))}
+        {_row("Missing intervals", interval.get("missing_intervals", "-"))}
+        {_row("Duplicate timestamps", interval.get("duplicate_timestamps", "-"))}
+        {_row("Regularity score", interval.get("regularity_score", "-"))}
+      </div>
+    </div>
+    <div class="two-col" style="margin-top:16px">
+      <div>
+        <h4>Target Integrity ({_esc(str(target.get("column_name", "-")))})</h4>
+        {_row("Null %", target.get("null_pct", "-"))}
+        {_row("Zero %", target.get("zero_pct", "-"))}
+        {_row("Outlier %", target.get("outlier_pct", "-"))}
+        {_row("Variance", target.get("variance", "-"))}
+      </div>
+      <div>
+        <h4>Leakage &amp; Cardinality</h4>
+        {_row("Perfectly-correlated features", ", ".join(leakage.get("perfect_correlation_features", []) or ["none"]))}
+        {_row("High-cardinality features", ", ".join(leakage.get("high_cardinality_features", []) or ["none"]))}
+        {_row("Identifier-like features", ", ".join(leakage.get("identifier_features", []) or ["none"]))}
+      </div>
+    </div>
+
+    <div class="two-col" style="margin-top:16px">
+      <div>
+        <h4 class="findings-critical">Blockers</h4>
+        <ul>{blockers_html}</ul>
+        <h4 class="findings-critical" style="margin-top:12px">Warnings</h4>
+        <ul>{warnings_html}</ul>
+      </div>
+      <div>
+        <h4 class="findings-positive">Recommendations</h4>
+        <ul>{recs_html}</ul>
+      </div>
+    </div>
+  </div>
+"""
+
+
 def generate_html_report(
     *,
     file_label: str,
@@ -425,6 +525,7 @@ def generate_html_report(
     processing_date: str,
     execution_time_s: float,
     engine_version: str = "Phase 1",
+    readiness: dict[str, Any] | None = None,
 ) -> str:
     """
     Build the full HTML report as a string.
@@ -433,6 +534,12 @@ def generate_html_report(
     already called by the caller) is reused here verbatim for the check
     cards and column matrix -- see module docstring. Nothing here re-derives
     a number that the console output didn't already compute.
+
+    readiness: optional Phase 2 M3 result -- an asdict()'d
+    ``ReadinessScore`` with ``temporal``/``interval``/``target``/``leakage``
+    sub-dicts attached (see main.py's ``_print_ml_readiness_results`` for
+    the exact shape). None (default) omits the ML Readiness card entirely
+    rather than rendering placeholder data.
     """
     consistency_results = list(task5_summary["consistency_results"])
     if fuzzy_summary and fuzzy_summary.get("fuzzy_results"):
@@ -461,7 +568,7 @@ def generate_html_report(
     matrix_rows = _column_quality_matrix(dimension_results)
 
     dqs = score.get("data_quality_score")
-    quality_label, readiness, quality_sev = _quality_label(dqs)
+    quality_label, readiness_text, quality_sev = _quality_label(dqs)
     gauge_color = _SEVERITY_COLORS[quality_sev]
 
     dimension_scores = score.get("dimension_scores", {})
@@ -574,7 +681,7 @@ def generate_html_report(
     {_gauge_svg(dqs, gauge_color)}
     <div class="label-block">
       <p class="qualifier" style="color:{gauge_color}">{_esc(quality_label)}</p>
-      <span class="readiness-badge" style="background:{gauge_color}">{_esc(readiness)}</span>
+      <span class="readiness-badge" style="background:{gauge_color}">{_esc(readiness_text)}</span>
     </div>
   </div>
   <div class="hero-meta">
@@ -653,6 +760,7 @@ def generate_html_report(
     {check_cards_html}
   </div>
 
+  {_ml_readiness_html(readiness)}
   <div class="card">
     <h2>Column Quality Matrix</h2>
     <table>

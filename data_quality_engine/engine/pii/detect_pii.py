@@ -33,6 +33,14 @@ TYPE_IP_ADDRESS = "IP_ADDRESS"
 TYPE_URL = "URL"
 TYPE_USERNAME = "USERNAME"
 TYPE_PASSWORD = "PASSWORD"
+# Phase 2 M9 HIPAA-specific types (patterns in phase2/compliance/recognizers.py)
+TYPE_MRN = "MRN"
+TYPE_BENEFICIARY_ID = "BENEFICIARY_ID"
+TYPE_FAX = "FAX"
+TYPE_VIN = "VIN"
+TYPE_DEVICE_SERIAL = "DEVICE_SERIAL"
+TYPE_LICENSE_CERT = "LICENSE_CERT"
+TYPE_UNIQUE_ID = "UNIQUE_ID"
 
 # More specific types win on equal-length overlaps
 _TYPE_PRIORITY = {
@@ -54,6 +62,13 @@ _TYPE_PRIORITY = {
     TYPE_ADDRESS: 2,
     TYPE_NAME: 2,
     TYPE_PASSWORD: 6,
+    TYPE_MRN: 5,
+    TYPE_BENEFICIARY_ID: 5,
+    TYPE_VIN: 5,
+    TYPE_LICENSE_CERT: 4,
+    TYPE_UNIQUE_ID: 4,
+    TYPE_DEVICE_SERIAL: 3,
+    TYPE_FAX: 3,
 }
 
 # Pakistan CNIC: 12345-1234567-1 (with or without dashes)
@@ -260,6 +275,15 @@ def _presidio_analyzer():
             name="cnic_recognizer",
         )
         analyzer.registry.add_recognizer(cnic_recognizer)
+        # Phase 2 M9: register HIPAA recognizers on the shared analyzer instance.
+        try:
+            from data_quality_engine.phase2.compliance.recognizers import (
+                register_hipaa_presidio_recognizers,
+            )
+
+            register_hipaa_presidio_recognizers(analyzer)
+        except Exception:
+            pass
         return analyzer
     except Exception:
         return None
@@ -270,7 +294,18 @@ _PRESIDIO_TYPE_MAP = {
     "PHONE_NUMBER": TYPE_PHONE,
     "EMAIL_ADDRESS": TYPE_EMAIL,
     "CREDIT_CARD": TYPE_CARD,
+    "US_SSN": TYPE_SSN,
+    "LOCATION": TYPE_ADDRESS,
+    "DATE_TIME": TYPE_DOB,
+    "URL": TYPE_URL,
+    "IP_ADDRESS": TYPE_IP_ADDRESS,
     "CNIC": TYPE_CNIC,
+    TYPE_MRN: TYPE_MRN,
+    TYPE_BENEFICIARY_ID: TYPE_BENEFICIARY_ID,
+    TYPE_FAX: TYPE_FAX,
+    TYPE_VIN: TYPE_VIN,
+    TYPE_DEVICE_SERIAL: TYPE_DEVICE_SERIAL,
+    TYPE_LICENSE_CERT: TYPE_LICENSE_CERT,
 }
 
 
@@ -360,6 +395,19 @@ def _infer_expected_types(column_name: str | None) -> set[str] | None:
         for k in ("password", "pwd", "pin", "passcode", "security answer", "security question")
     ):
         hints.add(TYPE_PASSWORD)
+    # Phase 2 M9: merge HIPAA column hints from recognizers.py (plan §4.3).
+    try:
+        from data_quality_engine.phase2.compliance.recognizers import (
+            infer_hipaa_types_from_column,
+        )
+
+        hints.update(infer_hipaa_types_from_column(column_name))
+    except Exception:
+        pass
+    if TYPE_FAX in hints:
+        # Fax columns should map to FAX, not generic phone regex.
+        hints.discard(TYPE_PHONE)
+        hints.discard(TYPE_MOBILE)
     return hints or None
 
 
@@ -397,6 +445,25 @@ def detect_pii(text: str, allowed_types: set[str] | None = None) -> list[dict]:
                 }
             )
         all_hits = resolve_overlaps(all_hits)
+    # Phase 2 M9: HIPAA-specific regex (MRN, VIN, etc.) gated by allowed_types.
+    if allowed_types:
+        try:
+            from data_quality_engine.phase2.compliance.recognizers import hipaa_regex_hits
+
+            hipaa_types = allowed_types & {
+                TYPE_MRN,
+                TYPE_BENEFICIARY_ID,
+                TYPE_FAX,
+                TYPE_VIN,
+                TYPE_DEVICE_SERIAL,
+                TYPE_LICENSE_CERT,
+                TYPE_UNIQUE_ID,
+            }
+            if hipaa_types:
+                all_hits.extend(hipaa_regex_hits(text, hipaa_types))
+                all_hits = resolve_overlaps(all_hits)
+        except Exception:
+            pass
     if not allowed_types:
         return all_hits
     return [h for h in all_hits if h["type"] in allowed_types]
@@ -456,7 +523,19 @@ def detect_pii_in_series(series) -> dict[str, Any]:
             "type_counts": {},
             "masked_rows": {},
             "allowed_types": [],
+            "unique_count": int(series.nunique(dropna=True)),
+            "age_over_89_count": 0,
         }
+
+    # Counts-only metadata for Phase 2 M9 HIPAA mapper (never logs values).
+    unique_count = int(series.nunique(dropna=True))
+    age_over_89_count = 0
+    try:
+        from data_quality_engine.phase2.compliance.recognizers import detect_age_over_89
+
+        age_over_89_count = detect_age_over_89(series, col_name)
+    except Exception:
+        pass
 
     for idx, value in series.items():
         if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -489,4 +568,6 @@ def detect_pii_in_series(series) -> dict[str, Any]:
         "type_counts": type_counts,
         "masked_rows": masked_rows,
         "allowed_types": sorted(allowed_types),
+        "unique_count": unique_count,
+        "age_over_89_count": age_over_89_count,
     }

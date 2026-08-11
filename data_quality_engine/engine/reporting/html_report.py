@@ -455,6 +455,9 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     pr = d["privacy_risk"]
     pr_html = ""
     pr_chart_js = ""
+    privacy_weight = float(
+        sc.get("dimension_scores", {}).get("privacy_sensitivity", {}).get("weight", 0.10)
+    )
     if pr:
         color = _RISK_COLORS.get(pr.get("risk_level", "none"), "#97907F")
         pii_cols = pr.get("columns_with_pii", 0)
@@ -462,7 +465,7 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
         clean_cols = max(total_cols - pii_cols, 0)
         pr_html = f"""
         <div class="card" id="privacy-risk">
-          <h2>Sensitive Data &amp; Privacy Risk <span style="font-weight:400;font-size:12.5px;color:#79726A">(reported separately -- never part of the score above)</span></h2>
+          <h2>Sensitive Data &amp; Privacy Risk <span style="font-weight:400;font-size:12.5px;color:#79726A">(included in composite via privacy_sensitivity, {privacy_weight:.0%} weight)</span></h2>
           <div class="two-col">
             <div>
               {_badge(pr.get('risk_level', 'none').upper(), color)}
@@ -654,9 +657,10 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
   <div class="card">
     <h2>Appendix &mdash; Methodology</h2>
     <p><b>Scoring formula:</b> Each dimension score = 100 &times; (passed checks / total non-error checks).
-    Composite = weighted average across scorable dimensions only, weights re-normalized when a dimension
-    has no results. Sensitive Data / Privacy Risk is calculated and reported separately -- never subtracted
-    from the composite score.</p>
+    Composite = weighted average across scorable dimensions (including
+    privacy_sensitivity for PII). HIPAA exposure may apply a proportional
+    ceiling when PHI is detected. Weights re-normalized when a dimension
+    has no results.</p>
     <p><b>Quality dimensions:</b> {', '.join(f"{k.replace('_', ' ').title()} ({v.get('weight', 0):.0%})" for k, v in sc['dimension_scores'].items())}</p>
     <p><b>Business-key detection:</b> a column is only treated as an intended-unique identifier when its name
     pattern, uniqueness ratio, repeated-value frequency, and classified role together clear a configurable

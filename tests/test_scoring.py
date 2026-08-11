@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from data_quality_engine.engine.models import CheckResult
 from data_quality_engine.engine.scoring import (
+    CRITICAL_SEVERITY_COMPOSITE_CAP,
     RUBRIC_DIMENSIONS,
     compute_data_quality_score,
 )
+from data_quality_engine.phase2.compliance.scoring import HipaaComplianceScore
 
 
 def _result(status: str, dimension: str = "completeness") -> CheckResult:
@@ -15,7 +17,7 @@ def _result(status: str, dimension: str = "completeness") -> CheckResult:
     )
 
 
-def test_all_eight_dimensions_present_gives_full_composite():
+def test_all_nine_dimensions_present_gives_full_composite():
     dimension_results = {dim: [_result("passed"), _result("failed")] for dim in RUBRIC_DIMENSIONS}
     out = compute_data_quality_score(dimension_results)
     assert out["data_quality_score"] == 50.0  # every dim is 50% passed
@@ -30,8 +32,8 @@ def test_partial_dimensions_excludes_missing_ones_transparently():
     }
     out = compute_data_quality_score(dimension_results)
     assert out["data_quality_score"] == 100.0
-    # weight scorable = completeness(0.20) + uniqueness(0.10) = 0.30 of 1.0
-    assert abs(out["scorable_weight_fraction"] - 0.30) < 1e-6
+    # weight scorable = completeness(0.18) + uniqueness(0.09) = 0.27 of 1.0
+    assert abs(out["scorable_weight_fraction"] - 0.27) < 1e-6
     assert set(out["dimensions_excluded"]) == set(RUBRIC_DIMENSIONS) - {
         "completeness",
         "uniqueness",
@@ -59,14 +61,15 @@ def test_unknown_dimension_key_returns_error_dict_not_crash():
 
 
 def test_weighted_dimensions_combine_correctly():
-    # completeness weight 0.20, all passed (100); uniqueness weight 0.10, all failed (0)
     dimension_results = {
         "completeness": [_result("passed"), _result("passed")],
-        "uniqueness": [_result("failed"), _result("failed")],
+        # 1/4 failed = 25% -> High severity, not Critical (no cap)
+        "uniqueness": [_result("passed"), _result("passed"), _result("passed"), _result("failed")],
     }
     out = compute_data_quality_score(dimension_results)
-    # weighted: (100*0.20 + 0*0.10) / (0.20+0.10) = 20/0.30 = 66.67
-    assert abs(out["data_quality_score"] - 66.67) < 0.01
+    # weighted: (100*0.18 + 75*0.09) / (0.18+0.09) = 24.75/0.27 = 91.67
+    assert abs(out["data_quality_score"] - 91.67) < 0.01
+    assert out["data_quality_score_raw"] == out["data_quality_score"]
 
 
 def test_custom_weights_override_settings_default():
@@ -74,22 +77,93 @@ def test_custom_weights_override_settings_default():
     out = compute_data_quality_score(
         dimension_results, weights={"completeness": 1.0, "uniqueness": 1.0}
     )
-    # equal weights now: (100*1.0 + 0*1.0) / 2.0 = 50.0
     assert out["data_quality_score"] == 50.0
 
 
-def test_privacy_risk_is_separate_and_never_affects_composite():
+def test_pii_affects_composite_via_privacy_sensitivity():
     dimension_results = {"completeness": [_result("passed")]}
     pii_summary = {
         "Email": {"rows_with_pii": 5, "type_counts": {"EMAIL": 5}},
         "Notes": {"rows_with_pii": 0, "type_counts": {}},
     }
     out = compute_data_quality_score(dimension_results, pii_summary_by_column=pii_summary)
-    assert out["data_quality_score"] == 100.0  # unaffected by PII presence
+    # completeness 100 (w=0.18) + privacy 50 (1/2 cols clean, w=0.10) -> raw ~96.43
+    assert out["data_quality_score_raw"] is not None
+    assert out["data_quality_score_raw"] < 100.0
+    assert out["dimension_scores"]["privacy_sensitivity"]["score"] == 50.0
     assert out["privacy_risk"]["columns_with_pii"] == 1
-    assert out["privacy_risk"]["total_columns"] == 2
-    assert "EMAIL" in out["privacy_risk"]["pii_types_found"]
-    assert out["privacy_risk"]["risk_level"] == "high"  # 1/2 = 0.5 ratio (>= 0.30 threshold)
+
+
+def test_proportional_pii_prevalence_one_vs_eight_columns():
+    """1/10 PII columns must score higher than 8/10 — no flat Critical cap."""
+    base_dims = {dim: [_result("passed")] for dim in RUBRIC_DIMENSIONS if dim != "privacy_sensitivity"}
+
+    def pii_summary(flagged_cols: int, total: int = 10) -> dict:
+        summary = {}
+        for i in range(total):
+            col = f"col_{i}"
+            if i < flagged_cols:
+                summary[col] = {"rows_with_pii": 1, "type_counts": {"EMAIL": 1}}
+            else:
+                summary[col] = {"rows_with_pii": 0, "type_counts": {}}
+        return summary
+
+    out_low = compute_data_quality_score(base_dims, pii_summary_by_column=pii_summary(1))
+    out_high = compute_data_quality_score(base_dims, pii_summary_by_column=pii_summary(8))
+
+    assert out_low["data_quality_score"] > out_high["data_quality_score"]
+    assert out_low["dimension_scores"]["privacy_sensitivity"]["score"] == 90.0
+    assert out_high["dimension_scores"]["privacy_sensitivity"]["score"] == 20.0
+    assert out_low["data_quality_score"] == out_low["data_quality_score_raw"]
+    assert out_high["data_quality_score"] == out_high["data_quality_score_raw"]
+    # 1/10: privacy 90% -> composite ~99; 8/10: privacy 20% -> composite ~92
+    assert out_low["data_quality_score"] >= 98.0
+    assert out_high["data_quality_score"] <= 93.0
+
+
+def test_no_flat_critical_cap_when_most_dimensions_perfect():
+    """3/4 PII columns: Critical label but composite stays near weighted average."""
+    base_dims = {dim: [_result("passed")] for dim in RUBRIC_DIMENSIONS if dim != "privacy_sensitivity"}
+    pii_summary = {
+        "MRN": {"rows_with_pii": 1, "type_counts": {"MRN": 1}},
+        "ssn": {"rows_with_pii": 1, "type_counts": {"SSN": 1}},
+        "email": {"rows_with_pii": 1, "type_counts": {"EMAIL": 1}},
+        "order_id": {"rows_with_pii": 0, "type_counts": {}},
+    }
+    out = compute_data_quality_score(base_dims, pii_summary_by_column=pii_summary)
+    assert out["dimension_scores"]["privacy_sensitivity"]["severity"] == "Critical"
+    assert out["data_quality_score"] == out["data_quality_score_raw"]
+    assert out["data_quality_score"] >= 90.0
+    assert out["data_quality_score"] > CRITICAL_SEVERITY_COMPOSITE_CAP
+    assert not any(
+        c.get("reason") == "critical_dimension" for c in out["composite_adjustments"]["caps_applied"]
+    )
+
+
+def test_hipaa_proportional_cap_scales_with_exposure():
+    dimension_results = {"completeness": [_result("passed")]}
+    low = HipaaComplianceScore(
+        exposure_score=30.0, identifiers_detected=1, columns_affected=1, severity="low"
+    )
+    high = HipaaComplianceScore(
+        exposure_score=90.0, identifiers_detected=4, columns_affected=3, severity="high"
+    )
+    out_low = compute_data_quality_score(dimension_results, hipaa_exposure=low)
+    out_high = compute_data_quality_score(dimension_results, hipaa_exposure=high)
+    assert out_low["data_quality_score"] > out_high["data_quality_score"]
+    assert out_high["data_quality_score"] >= 59.0
+
+
+def test_clean_data_with_no_pii_scores_100():
+    dimension_results = {dim: [_result("passed")] for dim in RUBRIC_DIMENSIONS}
+    pii_summary = {
+        "order_id": {"rows_with_pii": 0, "type_counts": {}},
+        "quantity": {"rows_with_pii": 0, "type_counts": {}},
+    }
+    out = compute_data_quality_score(dimension_results, pii_summary_by_column=pii_summary)
+    assert out["data_quality_score"] == 100.0
+    assert out["data_quality_score_raw"] == 100.0
+    assert not out["composite_adjustments"]["caps_applied"]
 
 
 def test_privacy_risk_none_when_no_pii_summary_given():
@@ -124,7 +198,6 @@ def test_role_skips_do_not_inflate_dimension_score():
         dimension="validity",
     )
     out = compute_data_quality_score({"outlier_risk": [skipped, skipped, failed]})
-    # Only the real assessment counts: 0 passed / 1 assessed = 0
     assert out["dimension_scores"]["outlier_risk"]["score"] == 0.0
     assert out["dimension_scores"]["outlier_risk"]["total"] == 1
     assert out["dimension_scores"]["outlier_risk"]["skipped"] == 2

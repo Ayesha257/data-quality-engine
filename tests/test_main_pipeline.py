@@ -43,7 +43,7 @@ def test_run_pipeline_completes_all_tasks(capsys):
     assert "Task 5 Results (Schema, Consistency, Validity, Freshness)" in out
     assert "Task 6 Results (Data Quality Score)" in out
     assert "Data Quality Score:" in out
-    assert "Privacy Risk (separate -- never part of the score above)" in out
+    assert "Privacy Risk (PII detail" in out
     assert "Done: Task 1-6 completed." in out
  
 def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):

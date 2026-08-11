@@ -1,31 +1,40 @@
-"""Composite Data Quality Score -> teacher's 8-dimension rubric.
+"""Composite Data Quality Score -> teacher rubric + privacy sensitivity.
 
-Scores all 8 rubric dimensions when results are supplied:
+Scores all rubric dimensions when results are supplied:
 completeness, validity, type_reliability, consistency, uniqueness,
-schema_quality, outlier_risk, freshness. Privacy risk (Task 4 PII) is
-reported separately and never folded into the composite.
+schema_quality, outlier_risk, freshness, privacy_sensitivity (PII).
 
-Design choices (match the teacher's brief):
+HIPAA (M9) exposure is reported separately (not a rubric dimension) but
+applies a composite ceiling when PHI exposure severity is elevated so
+Critical HIPAA findings cannot coexist with a headline score of 100.
 
-1. Weights come from SETTINGS["rubric_dimension_weights"] (8 dimensions,
-   sum to 1.0), not from CheckResult.dimension on individual checks.
-   Those two sets do not line up 1:1 -- e.g. type_mismatch and outliers
-   both tag dimension="validity" internally, but the rubric splits them
-   into type_reliability and outlier_risk, and reserves "validity" for
-   value-rule checks (negatives, date order, suspicious zeros). Callers
-   pass results under the rubric key they belong to.
+Design choices:
+
+1. Weights come from SETTINGS["rubric_dimension_weights"] (9 dimensions,
+   sum to 1.0). Callers pass check results under the rubric key they
+   belong to; PII is auto-materialized as privacy_sensitivity from
+   detect_pii_in_series summaries when supplied.
 
 2. Missing dimensions are excluded transparently (listed in
    dimensions_excluded); their weight is not silently redistributed
    without reporting scorable_weight_fraction.
 
-3. Privacy Risk is a separate field -- a dataset can score high on
-   analytical quality and still be unsafe to share.
+3. Per-dimension formula: score = 100 * average(quality_ratio) across
+   assessed results (see _result_quality). Binary checks without
+   quality_ratio use passed=1.0 / failed=0.0.
 
-Per-dimension formula: score = 100 * (passed / assessed), where
-"assessed" excludes status="error" and role-skip results whose
-details["reason"] starts with "skipped_" (e.g. outlier checks on
-identifier columns). Skips must not inflate the score.
+4. Composite adjustments (applied after the weighted average):
+   - Dimension scores already scale with affected volume via quality_ratio
+     (duplicates, missing) or column pass/fail rates (PII). No flat
+     "Critical = 59" ceiling — that collapsed 1/10 and 8/10 PII columns
+     to the same headline score.
+   - HIPAA exposure (separate M9 score) applies a proportional ceiling:
+     cap = 100 - (exposure_score/100) * (100 - 59). exposure 0 -> no cap;
+     exposure 100 -> cap 59; values in between scale linearly.
+   - Final score = min(raw_composite, applicable HIPAA cap).
+
+5. privacy_risk is retained for backward-compatible reporting but PII
+   now also flows through privacy_sensitivity in the composite.
 """
 
 from __future__ import annotations
@@ -44,18 +53,41 @@ RUBRIC_DIMENSIONS = (
     "schema_quality",
     "outlier_risk",
     "freshness",
+    "privacy_sensitivity",
 )
 
 _DEFAULT_WEIGHTS = {
-    "completeness": 0.20,
-    "validity": 0.20,
-    "type_reliability": 0.15,
-    "consistency": 0.15,
-    "uniqueness": 0.10,
-    "schema_quality": 0.10,
-    "outlier_risk": 0.05,
-    "freshness": 0.05,
+    "completeness": 0.18,
+    "validity": 0.18,
+    "type_reliability": 0.14,
+    "consistency": 0.14,
+    "uniqueness": 0.09,
+    "schema_quality": 0.09,
+    "outlier_risk": 0.04,
+    "freshness": 0.04,
+    "privacy_sensitivity": 0.10,
 }
+
+# Severity labels for reporting (report_generator._severity_from_ratio).
+# >=50% failed checks in a dimension -> "Critical" label only — does NOT
+# trigger a flat composite cap (see _apply_composite_adjustments).
+COMPOSITE_FLOOR = 59.0
+
+# Legacy alias kept for tests/docs referencing the old flat cap value.
+CRITICAL_SEVERITY_COMPOSITE_CAP = COMPOSITE_FLOOR
+
+
+def _severity_from_ratio(ratio: float) -> str:
+    """Align with engine/reporting/report_generator._severity_from_ratio."""
+    if ratio >= 0.50:
+        return "Critical"
+    if ratio >= 0.20:
+        return "High"
+    if ratio >= 0.05:
+        return "Medium"
+    if ratio > 0:
+        return "Low"
+    return "None"
 
 
 def _is_role_skip(result: CheckResult) -> bool:
@@ -67,20 +99,6 @@ def _is_role_skip(result: CheckResult) -> bool:
 def _result_quality(result: CheckResult) -> float:
     """
     Per-result quality in [0.0, 1.0] used to build a dimension's score.
-
-    Prefers the graded ``quality_ratio`` (fraction of rows/values that are
-    clean) when a check provides one -- e.g. missing_values, duplicates,
-    outliers, all of which can partially fail a column. Without this, a
-    column missing 1/533 values and a column missing 500/533 values both
-    collapsed to status="failed" and were scored identically (0), which is
-    what previously made Completeness/Uniqueness/Outlier Risk crash to
-    near-0 scores on datasets that were only partially affected.
-
-    Falls back to the original binary status (1.0 passed / 0.0 failed) for
-    checks that don't set quality_ratio -- these are dimensions that are
-    inherently binary at the column level (schema_quality, freshness,
-    type_mismatch, consistency, validity rule checks), so behaviour there is
-    unchanged.
     """
     if result.quality_ratio is not None:
         return max(0.0, min(1.0, float(result.quality_ratio)))
@@ -98,33 +116,58 @@ def _dimension_sub_score(results: list[CheckResult]) -> dict[str, Any]:
             "total": 0,
             "skipped": skipped,
             "errored": errored,
+            "failed": 0,
+            "severity": "None",
         }
-    # "passed" stays a count of status=="passed" results (reported as-is,
-    # e.g. in the Column Quality Matrix / "Columns with Issues" counts).
-    # The score itself is the average graded quality across assessed
-    # results, which equals the old binary passed/total whenever no result
-    # sets quality_ratio (see _result_quality).
     passed = sum(1 for r in assessed if r.status == "passed")
+    failed = len(assessed) - passed
     total = len(assessed)
     avg_quality = sum(_result_quality(r) for r in assessed) / total
+    fail_ratio = failed / total
     return {
         "score": round(100.0 * avg_quality, 2),
         "passed": passed,
         "total": total,
+        "failed": failed,
         "skipped": skipped,
         "errored": errored,
+        "severity": _severity_from_ratio(fail_ratio),
     }
+
+
+def _pii_check_results(
+    pii_summary_by_column: dict[str, dict[str, Any]] | None,
+) -> list[CheckResult]:
+    """
+    Materialize one CheckResult per column for the privacy_sensitivity
+    rubric dimension from detect_pii_in_series() summaries.
+    """
+    if not pii_summary_by_column:
+        return []
+
+    results: list[CheckResult] = []
+    for col, summary in pii_summary_by_column.items():
+        rows_with_pii = int(summary.get("rows_with_pii") or 0)
+        status = "passed" if rows_with_pii == 0 else "failed"
+        results.append(
+            CheckResult(
+                check_name="pii",
+                status=status,
+                column=str(col),
+                issues_found=rows_with_pii,
+                dimension="privacy_sensitivity",
+                quality_ratio=0.0 if rows_with_pii > 0 else 1.0,
+            )
+        )
+    return results
 
 
 def _privacy_risk(
     pii_summary_by_column: dict[str, dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
     """
-    Summarize Task 4 PII results as a standalone risk report -- never part
-    of the composite score. pii_summary_by_column is column_name ->
-    detect_pii_in_series() output (the same dict shape main.py already
-    loops over in _print_task4_results), NOT a list of CheckResult, since
-    PII detection doesn't produce CheckResults today.
+    Standalone PII risk summary for reports. PII also affects the
+    composite via privacy_sensitivity when summaries are supplied.
     """
     if not pii_summary_by_column:
         return None
@@ -157,7 +200,85 @@ def _privacy_risk(
         "total_columns": total_columns,
         "columns_flagged": sorted(flagged.keys()),
         "pii_types_found": sorted(types_found),
-        "note": "Reported separately -- never subtracted from data_quality_score.",
+        "note": "Also scored in composite via privacy_sensitivity dimension.",
+    }
+
+
+def _hipaa_exposure_block(hipaa_exposure: Any | None) -> dict[str, Any] | None:
+    if hipaa_exposure is None:
+        return None
+    if hasattr(hipaa_exposure, "exposure_score"):
+        return {
+            "exposure_score": float(hipaa_exposure.exposure_score),
+            "severity": str(hipaa_exposure.severity),
+            "identifiers_detected": int(hipaa_exposure.identifiers_detected),
+            "columns_affected": int(hipaa_exposure.columns_affected),
+            "note": "Separate M9 exposure score; applies composite ceiling when severity > none.",
+        }
+    if isinstance(hipaa_exposure, dict):
+        return {
+            "exposure_score": float(hipaa_exposure.get("exposure_score", 0)),
+            "severity": str(hipaa_exposure.get("severity", "none")),
+            "identifiers_detected": int(hipaa_exposure.get("identifiers_detected", 0)),
+            "columns_affected": int(hipaa_exposure.get("columns_affected", 0)),
+            "note": "Separate M9 exposure score; applies composite ceiling when severity > none.",
+        }
+    return None
+
+
+def _hipaa_proportional_cap(exposure_score: float) -> float | None:
+    """
+    Scale HIPAA ceiling with exposure_score (0-100).
+
+    exposure 0   -> None (no cap)
+    exposure 100 -> 59
+    exposure 50  -> 79.5
+    """
+    if exposure_score <= 0:
+        return None
+    return round(100.0 - (exposure_score / 100.0) * (100.0 - COMPOSITE_FLOOR), 2)
+
+
+def _apply_composite_adjustments(
+    raw_composite: float,
+    dimension_scores: dict[str, Any],
+    hipaa_exposure: Any | None,
+) -> tuple[float, dict[str, Any]]:
+    """
+    Apply HIPAA exposure proportional cap to the weighted average.
+    Critical-dimension labels do NOT apply a flat ceiling — dimension
+    scores already reflect the fraction of checks/columns affected.
+    """
+    caps_applied: list[dict[str, Any]] = []
+    adjusted = raw_composite
+
+    critical_dims = [
+        dim
+        for dim, info in dimension_scores.items()
+        if info.get("available") and info.get("severity") == "Critical"
+    ]
+
+    exposure = _hipaa_exposure_block(hipaa_exposure)
+    if exposure and exposure["exposure_score"] > 0:
+        hipaa_cap = _hipaa_proportional_cap(exposure["exposure_score"])
+        if hipaa_cap is not None and adjusted > hipaa_cap:
+            caps_applied.append(
+                {
+                    "reason": "hipaa_exposure",
+                    "severity": exposure["severity"],
+                    "cap": hipaa_cap,
+                    "exposure_score": exposure["exposure_score"],
+                    "detail": (
+                        f"proportional ceiling: 100 - (exposure/100)*({100 - COMPOSITE_FLOOR:.0f})"
+                    ),
+                }
+            )
+            adjusted = hipaa_cap
+
+    return round(adjusted, 2), {
+        "raw_composite": round(raw_composite, 2),
+        "caps_applied": caps_applied,
+        "critical_dimensions": critical_dims,
     }
 
 
@@ -165,33 +286,35 @@ def compute_data_quality_score(
     dimension_results: dict[str, list[CheckResult]],
     weights: dict[str, float] | None = None,
     pii_summary_by_column: dict[str, dict[str, Any]] | None = None,
+    hipaa_exposure: Any | None = None,
 ) -> dict[str, Any]:
     """
-    dimension_results: rubric dimension name -> list of CheckResult already
-        run for that dimension. Keys must be a subset of RUBRIC_DIMENSIONS.
-        Dimensions not present are treated as "not yet available", not as
-        a failing score of 0.
-    weights: overrides SETTINGS["rubric_dimension_weights"] if given.
-    pii_summary_by_column: optional Task 4 output for the separate privacy
-        risk report (see _privacy_risk docstring for the expected shape).
+    dimension_results: rubric dimension name -> list of CheckResult.
+    pii_summary_by_column: Task 4 output; auto-populates privacy_sensitivity
+        unless that key is already present in dimension_results.
+    hipaa_exposure: HipaaComplianceScore (or dict) from M9; applies a
+        composite ceiling by exposure severity without becoming a rubric dim.
 
-    Returns a dict (not a CheckResult -- this is a composite report over
-    many checks, not a single pass/fail result):
+    Returns:
         {
-            "data_quality_score": float | None,
-            "scorable_weight_fraction": float,   # e.g. 0.85 if dims worth
-                                                  # 85% of total weight were
-                                                  # actually available
-            "dimension_scores": {dim: {score, passed, total, errored,
-                                        weight, available}},
+            "data_quality_score": float | None,      # after caps
+            "data_quality_score_raw": float | None,  # weighted avg before caps
+            "composite_adjustments": {...},
+            "scorable_weight_fraction": float,
+            "dimension_scores": {dim: {score, passed, total, severity, ...}},
             "dimensions_excluded": [dim, ...],
             "privacy_risk": {...} | None,
+            "hipaa_exposure": {...} | None,
         }
     """
     try:
         weights = weights or SETTINGS.get("rubric_dimension_weights", _DEFAULT_WEIGHTS)
 
-        unknown = set(dimension_results) - set(RUBRIC_DIMENSIONS)
+        merged_results = dict(dimension_results)
+        if pii_summary_by_column and "privacy_sensitivity" not in merged_results:
+            merged_results["privacy_sensitivity"] = _pii_check_results(pii_summary_by_column)
+
+        unknown = set(merged_results) - set(RUBRIC_DIMENSIONS)
         if unknown:
             raise ValueError(
                 f"Unknown rubric dimension(s) in dimension_results: {sorted(unknown)}. "
@@ -203,14 +326,16 @@ def compute_data_quality_score(
 
         for dim in RUBRIC_DIMENSIONS:
             weight = float(weights.get(dim, 0.0))
-            results = dimension_results.get(dim)
+            results = merged_results.get(dim)
             if not results:
                 dimension_scores[dim] = {
                     "score": None,
                     "passed": 0,
                     "total": 0,
+                    "failed": 0,
                     "skipped": 0,
                     "errored": 0,
+                    "severity": "None",
                     "weight": weight,
                     "available": False,
                 }
@@ -226,25 +351,36 @@ def compute_data_quality_score(
         scorable_fraction = (scorable_weight / weight_total) if weight_total else 0.0
 
         if available and scorable_weight > 0:
-            composite = sum(
+            raw_composite = sum(
                 available[dim] * float(weights.get(dim, 0.0)) for dim in available
             ) / scorable_weight
-            composite = round(composite, 2)
+            raw_composite = round(raw_composite, 2)
+            composite, adjustments = _apply_composite_adjustments(
+                raw_composite, dimension_scores, hipaa_exposure
+            )
         else:
+            raw_composite = None
             composite = None
+            adjustments = {"raw_composite": None, "caps_applied": [], "critical_dimensions": []}
 
         return {
             "data_quality_score": composite,
+            "data_quality_score_raw": raw_composite,
+            "composite_adjustments": adjustments,
             "scorable_weight_fraction": round(scorable_fraction, 4),
             "dimension_scores": dimension_scores,
             "dimensions_excluded": [d for d in RUBRIC_DIMENSIONS if d not in available],
             "privacy_risk": _privacy_risk(pii_summary_by_column),
+            "hipaa_exposure": _hipaa_exposure_block(hipaa_exposure),
         }
     except Exception as exc:  # noqa: BLE001 - never crash the pipeline
         return {
             "data_quality_score": None,
+            "data_quality_score_raw": None,
+            "composite_adjustments": {"raw_composite": None, "caps_applied": [], "critical_dimensions": []},
             "error": str(exc),
             "dimension_scores": {},
             "dimensions_excluded": list(RUBRIC_DIMENSIONS),
             "privacy_risk": None,
+            "hipaa_exposure": None,
         }

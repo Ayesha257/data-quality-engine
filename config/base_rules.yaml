@@ -25,6 +25,28 @@ thresholds:
   # explanation layer or M4's API consumers).
   min_acceptable_overall_score: 60.0
 
+  # Phase 2 M6 — entity resolution confidence gates (0.0–1.0)
+  entity_fuzzy_auto: 0.85
+  entity_fuzzy_review: 0.75
+  entity_semantic_auto: 0.78
+  entity_semantic_review: 0.70
+
+entity_resolution:
+  enabled: true
+  semantic_model: all-MiniLM-L6-v2
+  entity_types:
+    city:
+      columns: ["City", "city"]
+      canonicals: ["Lahore", "Karachi", "Islamabad"]
+      aliases:
+        LHR: Lahore
+        KHI: Karachi
+    country:
+      columns: ["Country", "country"]
+      canonicals: ["United Kingdom", "Pakistan"]
+      aliases:
+        UK: United Kingdom
+
 business_rules:
   - rule_id: no_negative_amounts
     description: "Monetary columns should not contain negative values unless explicitly a refund/credit column."

@@ -30,6 +30,7 @@ BUSINESS_IMPACT = {
     "validity": "Values that look present may still be unusable or logically wrong.",
     "freshness": "Decisions may be based on stale data without anyone noticing.",
     "referential_integrity": "Records may reference customers/suppliers/products that don't exist.",
+    "hipaa_phi": "Protected health information may require HIPAA safeguards before use or sharing.",
 }
 
 RECOMMENDATION = {
@@ -43,6 +44,7 @@ RECOMMENDATION = {
     "validity": "Fix values that fail format/logic rules at the source before further use.",
     "freshness": "Confirm this data is refreshed on the expected schedule.",
     "referential_integrity": "Investigate and correct orphaned references before reporting on this data.",
+    "hipaa_phi": "Review PHI exposure, apply masking, and restrict access per your compliance policy.",
 }
 
 CHECK_DISPLAY_NAME = {
@@ -57,7 +59,48 @@ CHECK_DISPLAY_NAME = {
     "validity": "Validity",
     "freshness": "Freshness",
     "referential_integrity": "Referential Integrity",
+    "hipaa_phi": "HIPAA PHI Compliance Scan",
 }
+
+# Maps report check blocks to rubric dimensions shown in Quality Score Breakdown.
+CHECK_TO_DIMENSION = {
+    "missing_values": "completeness",
+    "duplicates": "uniqueness",
+    "type_mismatch": "type_reliability",
+    "outliers": "outlier_risk",
+    "consistency": "consistency",
+    "fuzzy_match": "consistency",
+    "schema_quality": "schema_quality",
+    "validity": "validity",
+    "freshness": "freshness",
+    "pii": "privacy_sensitivity",
+}
+
+
+def _result_quality(result: CheckResult) -> float:
+    """Mirror engine/scoring.py::_result_quality for report severity alignment."""
+    if result.quality_ratio is not None:
+        return max(0.0, min(1.0, float(result.quality_ratio)))
+    return 1.0 if result.status == "passed" else 0.0
+
+
+def _impact_ratio_from_results(results: list[CheckResult]) -> float:
+    """
+    Fraction of quality lost across assessed results — same basis as dimension
+    scoring (average quality_ratio, or binary pass/fail when ratio absent).
+    """
+    assessed = [r for r in results if r.status != "error"]
+    if not assessed:
+        return 0.0
+    avg_quality = sum(_result_quality(r) for r in assessed) / len(assessed)
+    return 1.0 - avg_quality
+
+
+def _severity_from_score(score: float | None) -> str:
+    """Convert a 0-100 dimension/check score to a severity label."""
+    if score is None:
+        return "None"
+    return _severity_from_ratio(1.0 - score / 100.0)
 
 
 def _severity_from_ratio(ratio: float) -> str:
@@ -86,6 +129,26 @@ def _readiness_from_score(score: float | None) -> str:
     return "Not Recommended"
 
 
+def _effective_readiness_score(score: dict[str, Any]) -> float | None:
+    """
+    Limiting score for the Data Readiness band — same thresholds as
+    ``_readiness_from_score``, applied to the minimum of headline data
+    quality, compliance-adjusted score (when present), and each assessed
+    dimension score.
+    """
+    dqs = score.get("data_quality_score")
+    if dqs is None:
+        return None
+    candidates = [float(dqs)]
+    comp = score.get("compliance_adjusted_score")
+    if comp is not None:
+        candidates.append(float(comp))
+    for info in (score.get("dimension_scores") or {}).values():
+        if info.get("available") and info.get("score") is not None:
+            candidates.append(float(info["score"]))
+    return min(candidates)
+
+
 def _rating_from_score(score: float | None) -> str:
     if score is None:
         return "Unrated"
@@ -111,35 +174,93 @@ def _severity_color(severity: str) -> str:
 def _summarize_check(check_name: str, results: list[CheckResult]) -> dict[str, Any]:
     """One deterministic summary block per implemented check."""
     non_error = [r for r in results if r.status != "error"]
-    total = len(non_error)
-    failed = [r for r in non_error if r.status == "failed"]
-    total_issues = sum(r.issues_found for r in non_error)
-    ratio = (len(failed) / total) if total else 0.0
-    severity = _severity_from_ratio(ratio)
+    column_breakdown: list[dict[str, Any]] = []
 
-    affected_columns = sorted({r.column for r in failed if r.column})
-    samples = []
-    for r in failed[:5]:
-        detail_bits = {
-            k: v
-            for k, v in (r.details or {}).items()
-            if k in ("reason", "rule", "note", "sample_outlier_values", "examples")
-        }
-        samples.append({"column": r.column, "issues_found": r.issues_found, **detail_bits})
+    if check_name == "hipaa_phi":
+        file_level = next((r for r in non_error if r.column is None), None)
+        column_level = [r for r in non_error if r.column is not None]
+        failed_columns = [r for r in column_level if r.status == "failed"]
+
+        affected_columns = sorted({str(r.column) for r in failed_columns if r.column})
+        if not affected_columns and file_level:
+            phi_cols = (file_level.details or {}).get("columns_with_phi") or []
+            affected_columns = sorted(str(c) for c in phi_cols)
+
+        for r in sorted(
+            failed_columns,
+            key=lambda x: (-x.issues_found, str(x.column or "")),
+        ):
+            column_breakdown.append(
+                {
+                    "column": r.column,
+                    "issues_found": r.issues_found,
+                    "identifiers": dict((r.details or {}).get("identifiers") or {}),
+                }
+            )
+
+        total_issues = (
+            file_level.issues_found if file_level else sum(r.issues_found for r in non_error)
+        )
+        impact_results = [file_level] if file_level else non_error
+        columns_checked = len(affected_columns)
+        columns_with_issues = len(affected_columns)
+        samples = list(column_breakdown[:10])
+    else:
+        failed = [r for r in non_error if r.status == "failed"]
+        total_issues = sum(r.issues_found for r in non_error)
+        impact_results = non_error
+        affected_columns = sorted({r.column for r in failed if r.column})
+        columns_checked = len(non_error)
+        columns_with_issues = len(failed)
+        samples = []
+        for r in failed[:5]:
+            detail_bits = {
+                k: v
+                for k, v in (r.details or {}).items()
+                if k in ("reason", "rule", "note", "sample_outlier_values", "examples")
+            }
+            samples.append({"column": r.column, "issues_found": r.issues_found, **detail_bits})
+
+    impact_ratio = _impact_ratio_from_results(impact_results)
+    severity = _severity_from_ratio(impact_ratio)
 
     return {
         "check_name": check_name,
         "display_name": CHECK_DISPLAY_NAME.get(check_name, check_name.replace("_", " ").title()),
-        "columns_checked": total,
-        "columns_with_issues": len(failed),
+        "columns_checked": columns_checked,
+        "columns_with_issues": columns_with_issues,
         "total_issues_found": total_issues,
+        "impact_ratio": round(impact_ratio, 4),
         "severity": severity,
         "severity_color": _severity_color(severity),
+        "severity_basis": "proportional",
         "affected_columns": affected_columns,
+        "column_breakdown": column_breakdown,
         "sample_findings": samples,
         "business_impact": BUSINESS_IMPACT.get(check_name, "May affect downstream analysis reliability."),
         "recommendation": RECOMMENDATION.get(check_name, "Review and remediate flagged rows/columns."),
     }
+
+
+def _align_check_severities_with_dimensions(
+    check_summaries: dict[str, dict[str, Any]],
+    dimension_scores: dict[str, Any],
+) -> None:
+    """
+    Ensure check-level severity badges match the Quality Score Breakdown
+    dimension they belong to (same score -> same severity band).
+    """
+    for check_name, dim in CHECK_TO_DIMENSION.items():
+        summary = check_summaries.get(check_name)
+        info = dimension_scores.get(dim) or {}
+        if not summary or not info.get("available") or info.get("score") is None:
+            continue
+        score = float(info["score"])
+        summary["dimension_score"] = score
+        summary["severity"] = _severity_from_score(score)
+        summary["severity_color"] = _severity_color(summary["severity"])
+        summary["impact_ratio"] = round(1.0 - score / 100.0, 4)
+        summary["severity_basis"] = "dimension_score"
 
 
 def _column_quality_matrix(
@@ -153,9 +274,10 @@ def _column_quality_matrix(
             continue
         failed = [r for r in col_results if r.status == "failed"]
         total_issues = sum(r.issues_found for r in col_results)
-        ratio = len(failed) / len(col_results) if col_results else 0
-        severity = _severity_from_ratio(ratio)
-        score = round(100.0 * (1 - ratio), 1)
+        avg_quality = sum(_result_quality(r) for r in col_results) / len(col_results)
+        impact_ratio = 1.0 - avg_quality
+        severity = _severity_from_ratio(impact_ratio)
+        score = round(100.0 * avg_quality, 1)
         failing_checks = sorted({r.check_name for r in failed})
         rows.append(
             {
@@ -463,6 +585,7 @@ def build_report_data(
     check_results_by_name: dict[str, list[CheckResult]],
     pii_summary_by_column: dict[str, dict[str, Any]],
     fuzzy_results: dict[str, dict[str, Any]] | None,
+    entity_resolution: dict[str, Any] | None = None,
     score: dict[str, Any],
     engine_version: str = "Phase 1",
     sheet_disclosure: dict[str, Any] | None = None,
@@ -497,6 +620,9 @@ def build_report_data(
     check_summaries = {
         name: _summarize_check(name, results) for name, results in check_results_by_name.items()
     }
+    _align_check_severities_with_dimensions(
+        check_summaries, score.get("dimension_scores") or {}
+    )
 
     # ---- PII summary block ----
     # FIX (ISS-04, validation audit): total_rows_with_pii used to be
@@ -545,15 +671,35 @@ def build_report_data(
     severity_rank = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "None": 4}
     top_issues = []
     for name, summary in check_summaries.items():
-        for col in summary["affected_columns"]:
+        results = check_results_by_name.get(name, [])
+        failed_results = [
+            r for r in results if r.status != "error" and r.status == "failed"
+        ]
+        for r in failed_results:
+            col = r.column or "-"
+            row_severity = _severity_from_ratio(1.0 - _result_quality(r))
             top_issues.append(
                 {
                     "issue": summary["display_name"],
                     "column": col,
+                    "severity": row_severity,
+                    "severity_color": _severity_color(row_severity),
+                    "impact": summary["business_impact"],
+                    "action": summary["recommendation"],
+                    "issues_found": r.issues_found,
+                }
+            )
+        # Fallback when failed checks have no column name (e.g. full-row duplicates)
+        if not failed_results and summary["total_issues_found"] > 0:
+            top_issues.append(
+                {
+                    "issue": summary["display_name"],
+                    "column": "-",
                     "severity": summary["severity"],
                     "severity_color": summary["severity_color"],
                     "impact": summary["business_impact"],
                     "action": summary["recommendation"],
+                    "issues_found": summary["total_issues_found"],
                 }
             )
     top_issues.sort(key=lambda x: severity_rank.get(x["severity"], 9))
@@ -617,8 +763,9 @@ def build_report_data(
         },
         "score": {
             "overall": dqs,
+            "compliance_adjusted": score.get("compliance_adjusted_score"),
             "rating": _rating_from_score(dqs),
-            "readiness": _readiness_from_score(dqs),
+            "readiness": _readiness_from_score(_effective_readiness_score(score)),
             "scorable_weight_fraction": score.get("scorable_weight_fraction"),
             "dimension_scores": score.get("dimension_scores", {}),
             "dimensions_excluded": score.get("dimensions_excluded", []),
@@ -628,6 +775,7 @@ def build_report_data(
         "privacy_risk": score.get("privacy_risk"),
         "pii": pii_block,
         "fuzzy": fuzzy_block,
+        "entity_resolution": entity_resolution or {"enabled": False},
         "checks": check_summaries,
         "column_matrix": matrix,
         "duplicate_analysis": duplicate_analysis,

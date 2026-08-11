@@ -189,3 +189,27 @@ def test_telephone_column_with_real_numbers_still_flagged_phone():
     summary = detect_pii_in_series(s)
     assert summary["rows_with_pii"] >= 1
     assert TYPE_PHONE in summary["type_counts"] or TYPE_MOBILE in summary["type_counts"]
+
+
+def test_company_reg_column_not_flagged_as_phone_or_card():
+    """UK company registration numbers must not match phone/mobile/card regex."""
+    s = pd.Series(
+        [
+            "01537952",
+            "04617032",
+            "03426367",
+            "6197756300009161",
+            "75132218100015",
+        ],
+        name="Company Reg No.",
+    )
+    summary = detect_pii_in_series(s)
+    assert summary["rows_with_pii"] == 0
+    assert summary["type_counts"] == {}
+
+
+def test_vat_and_eori_columns_skip_contact_regex_scan():
+    for col_name in ("Customer VAT Number", "Customer EORI", "Ship Address VAT Number"):
+        s = pd.Series(["GB123456789", "01537952"], name=col_name)
+        summary = detect_pii_in_series(s)
+        assert summary["rows_with_pii"] == 0, col_name

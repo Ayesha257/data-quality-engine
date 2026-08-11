@@ -13,6 +13,7 @@ it only decides how to *display* them (enterprise wording, cards, charts).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,7 @@ _ENTERPRISE_LABEL = {
     "validity": "Validity & Logic Assessment",
     "freshness": "Data Freshness Assessment",
     "referential_integrity": "Referential Integrity Assessment",
+    "hipaa_phi": "HIPAA PHI Compliance Scan",
 }
 
 _DIM_ICONS = {
@@ -167,9 +169,14 @@ def _kpi_card(label: str, score_info: dict[str, Any]) -> str:
     score = score_info.get("score")
     available = score_info.get("available", False)
     weight = score_info.get("weight", 0)
-    bar_pct = score if (score is not None and available) else 0
-    color = "#28A89E" if bar_pct >= 90 else "#65A30D" if bar_pct >= 75 else "#D97706" if bar_pct >= 55 else "#DC2626"
-    score_text = f"{score:.0f}" if (score is not None and available) else "N/A"
+    if not available or score is None:
+        bar_pct = 0
+        color = "#A29A8D"
+        score_text = "N/A"
+    else:
+        bar_pct = score
+        color = "#28A89E" if bar_pct >= 90 else "#65A30D" if bar_pct >= 75 else "#D97706" if bar_pct >= 55 else "#DC2626"
+        score_text = f"{score:.0f}"
     status = "Assessed" if available else "Not Scorable"
     icon = _DIM_ICONS.get(label, _icon("bar-chart"))
     return f"""
@@ -217,7 +224,20 @@ def _check_card(name: str, summary: dict[str, Any]) -> str:
     cols = ", ".join(summary["affected_columns"][:10]) or "None"
     label = _ENTERPRISE_LABEL.get(name, summary["display_name"])
     samples_html = ""
-    if summary["sample_findings"]:
+    breakdown = summary.get("column_breakdown") or []
+    if breakdown:
+        rows = ""
+        for row in breakdown:
+            col = row.get("column", "-")
+            issues = row.get("issues_found", "-")
+            identifiers = row.get("identifiers") or {}
+            id_str = ", ".join(f"{k}: {v}" for k, v in sorted(identifiers.items()))
+            detail = f" ({id_str})" if id_str else ""
+            rows += f"<li><b>{col}</b>: {issues} issue(s){detail}</li>"
+        samples_html = (
+            f"<p><b>Per-Column Breakdown:</b></p><ul class='sample-list'>{rows}</ul>"
+        )
+    elif summary["sample_findings"]:
         rows = ""
         for f in summary["sample_findings"]:
             col = f.get("column", "-")
@@ -438,8 +458,9 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     # ---- Chart.js data: dimension radar + issue severity doughnut ----
     dim_labels = [k.replace("_", " ").title() for k in sc["dimension_scores"].keys()]
     dim_scores = [
-        (v.get("score") if v.get("available") else 0) for v in sc["dimension_scores"].values()
+        v.get("score") if v.get("available") else None for v in sc["dimension_scores"].values()
     ]
+    dim_scores_json = json.dumps(dim_scores)
 
     severity_counts: dict[str, int] = {}
     for s in d["checks"].values():
@@ -460,9 +481,10 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     )
     if pr:
         color = _RISK_COLORS.get(pr.get("risk_level", "none"), "#97907F")
-        pii_cols = pr.get("columns_with_pii", 0)
-        total_cols = pr.get("total_columns", 0) or 1
+        pii_cols = d["pii"]["columns_with_pii"]
+        total_cols = d["pii"]["total_columns"] or 1
         clean_cols = max(total_cols - pii_cols, 0)
+        pii_types = d["pii"].get("types_found") or pr.get("pii_types_found") or []
         pr_html = f"""
         <div class="card" id="privacy-risk">
           <h2>Sensitive Data &amp; Privacy Risk <span style="font-weight:400;font-size:12.5px;color:#79726A">(included in composite via privacy_sensitivity, {privacy_weight:.0%} weight)</span></h2>
@@ -470,7 +492,9 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
             <div>
               {_badge(pr.get('risk_level', 'none').upper(), color)}
               <p style="margin-top:12px">Columns with sensitive data: <b>{pii_cols} / {total_cols}</b></p>
-              <p>Types found: {', '.join(pr.get('pii_types_found', [])) or 'none'}</p>
+              <p>Distinct rows with sensitive data: <b>{d['pii']['total_rows_with_pii']:,}</b></p>
+              <p>Types found: {', '.join(pii_types) or 'none'}</p>
+              <p>Flagged columns: {', '.join(d['pii'].get('flagged_columns') or []) or 'none'}</p>
             </div>
             <div class="chart-box" style="max-width:220px"><canvas id="prChart"></canvas></div>
           </div>
@@ -520,9 +544,38 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
 
     fuzzy = d["fuzzy"]
     pii = d["pii"]
+    er = d.get("entity_resolution") or {}
+    er_html = ""
+    if er.get("enabled"):
+        es = er.get("summary") or {}
+        er_html = f"""
+  <div class="card" id="entity-resolution">
+    <h2>Entity Resolution (M6)</h2>
+    <p class="section-intro">Three-tier cascade: canonical lookup &rarr; RapidFuzz &rarr; semantic fallback.
+    Original values are never overwritten automatically.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Auto-matched</div><div class="kpi-score">{es.get('auto_match', 0)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Needs review</div><div class="kpi-score">{es.get('review', 0)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">No match</div><div class="kpi-score">{es.get('no_match', 0)}</div></div>
+    </div>
+  </div>
+"""
 
     readiness_color = _READINESS_COLORS.get(sc["readiness"], "#97907F")
     rating_color = _RATING_COLORS.get(sc["rating"], "#97907F")
+    compliance = sc.get("compliance_adjusted")
+    overall = sc.get("overall")
+    compliance_note = ""
+    if (
+        compliance is not None
+        and overall is not None
+        and float(compliance) < float(overall) - 0.05
+    ):
+        compliance_note = (
+            f'<div style="margin-top:10px;font-size:13px;color:#C9E8E4;line-height:1.5">'
+            f"Compliance-adjusted score (HIPAA PHI): "
+            f'<b style="color:white">{float(compliance):.1f}</b> / 100</div>'
+        )
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -547,6 +600,7 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     <div style="text-align:left">
       {_badge(sc['rating'], rating_color)}<br><br>
       <span class="readiness-badge" style="background:{readiness_color}">{sc['readiness']}</span>
+      {compliance_note}
     </div>
   </div>
   <div class="hero-meta">
@@ -602,6 +656,8 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
 
   {pr_html}
 
+  {er_html}
+
   <div class="card">
     <h2>Dataset Profile</h2>
     <p><b>Header Row:</b> {ov['header_row']} &middot; <b>Business Rules Executed:</b> {ov['checks_executed']}</p>
@@ -616,6 +672,7 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
         <p><b>Sensitive (PII) columns:</b> {pii['columns_with_pii']} / {pii['total_columns']}</p>
         <p><b>Rows with sensitive data:</b> {pii['total_rows_with_pii']:,}</p>
         <p><b>Types found:</b> {', '.join(pii['types_found']) or 'none'}</p>
+        <p><b>Flagged columns:</b> {', '.join(pii.get('flagged_columns') or []) or 'none'}</p>
       </div>
       <div>
         <p><b>Columns standardized:</b> {fuzzy['columns_with_remaps']}</p>
@@ -662,6 +719,16 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
     ceiling when PHI is detected. Weights re-normalized when a dimension
     has no results.</p>
     <p><b>Quality dimensions:</b> {', '.join(f"{k.replace('_', ' ').title()} ({v.get('weight', 0):.0%})" for k, v in sc['dimension_scores'].items())}</p>
+    <p><b>HIPAA ceiling (hybrid):</b> When M9 PHI exposure is detected, the headline
+    score is capped at the <b>stricter</b> of (a) a proportional ceiling from
+    exposure_score, or (b) a severity floor (high&rarr;70, medium&rarr;74,
+    low&rarr;89). The weighted <code>privacy_sensitivity</code> dimension (10%)
+    still applies in the raw composite first — stewards see column-level PII
+    impact in the breakdown; the cap ensures compliance-grade PHI cannot yield
+    a near-perfect headline score.</p>
+    <p><b>Severity badges:</b> Critical / High / Medium / Low use the same proportional
+    thresholds as dimension scoring. &ge;50% impact = Critical, &ge;20% = High,
+    &ge;5% = Medium, &gt;0% = Low.</p>
     <p><b>Business-key detection:</b> a column is only treated as an intended-unique identifier when its name
     pattern, uniqueness ratio, repeated-value frequency, and classified role together clear a configurable
     confidence threshold -- never from column name alone.</p>
@@ -678,7 +745,7 @@ new Chart(document.getElementById('dimChart'), {{
     labels: {dim_labels!r},
     datasets: [{{
       label: 'Score',
-      data: {dim_scores!r},
+      data: {dim_scores_json},
       backgroundColor: 'rgba(37,99,235,0.15)',
       borderColor: '#1F8A7F',
       pointBackgroundColor: '#1F8A7F',

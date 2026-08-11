@@ -152,6 +152,17 @@ def _executive_summary_page(pdf: FPDF, data: dict[str, Any]):
         "Overall Quality Score:",
         f"{sc['overall']:.1f} / 100  ({sc['rating']})" if sc["overall"] is not None else "N/A",
     )
+    compliance = sc.get("compliance_adjusted")
+    if (
+        compliance is not None
+        and sc["overall"] is not None
+        and float(compliance) < float(sc["overall"]) - 0.05
+    ):
+        _kv_row(
+            pdf,
+            "Compliance-Adjusted (HIPAA):",
+            f"{float(compliance):.1f} / 100",
+        )
     if sc["dimensions_excluded"]:
         _kv_row(pdf, "Dimensions Excluded:", ", ".join(sc["dimensions_excluded"]))
     pdf.ln(4)
@@ -219,7 +230,20 @@ def _business_impact_page(pdf: FPDF, data: dict[str, Any]):
     if data["pii"]["columns_with_pii"] > 0:
         pdf.set_font("Helvetica", "B", 10.5)
         pdf.cell(0, 8, "PII Exposure", new_x="LMARGIN", new_y="NEXT")
-        _severity_badge(pdf, "Critical")
+        pr = data.get("privacy_risk") or {}
+        privacy_dim = (data.get("score") or {}).get("dimension_scores", {}).get(
+            "privacy_sensitivity", {}
+        )
+        if privacy_dim.get("available") and privacy_dim.get("severity"):
+            pii_severity = privacy_dim["severity"]
+        else:
+            pii_severity = {
+                "high": "High",
+                "medium": "Medium",
+                "low": "Low",
+                "none": "None",
+            }.get(str(pr.get("risk_level", "none")).lower(), "Medium")
+        _severity_badge(pdf, pii_severity)
         pdf.ln(9)
         pdf.set_font("Helvetica", "", 9)
         pdf.multi_cell(0, 5.5, "Business Impact: Privacy and compliance risk if this data is shared unmasked.", new_x="LMARGIN", new_y="NEXT")
@@ -263,8 +287,23 @@ def _draw_dimension_bar_chart(pdf: FPDF, dims: dict[str, Any], x0: float, y0: fl
     bar_max_w = width - label_w - 14
     row_h = 8.5
     for dim, info in dims.items():
-        score = info.get("score") if info.get("available") else 0
-        score = score or 0
+        available = info.get("available", False)
+        score = info.get("score")
+        if not available or score is None:
+            pdf.set_xy(x0, y)
+            pdf.set_font("Helvetica", "", 8.5)
+            pdf.set_text_color(*_SLATE)
+            pdf.cell(label_w, row_h, dim.replace("_", " ").title())
+            bar_x = x0 + label_w
+            pdf.set_fill_color(*_LIGHT)
+            pdf.rect(bar_x, y + 1.5, bar_max_w, 5, style="F")
+            pdf.set_xy(bar_x + bar_max_w + 3, y)
+            pdf.set_font("Helvetica", "B", 8.5)
+            pdf.set_text_color(*_SLATE)
+            pdf.cell(10, row_h, "N/A")
+            y += row_h
+            continue
+        score = float(score)
         color = (22, 163, 74) if score >= 90 else (101, 163, 13) if score >= 75 else (202, 138, 4) if score >= 55 else (185, 28, 28)
         pdf.set_xy(x0, y)
         pdf.set_font("Helvetica", "", 8.5)
@@ -327,7 +366,7 @@ def _score_dashboard_page(pdf: FPDF, data: dict[str, Any]):
         pdf.set_text_color(*_SLATE)
         pdf.cell(col_w - 10, 5, dim.replace("_", " ").title())
         pdf.set_xy(x + 3, y + 10)
-        score_val = info.get("score")
+        score_val = info.get("score") if info.get("available") else None
         pdf.set_font("Helvetica", "B", 16)
         if score_val is not None:
             pdf.set_text_color(*_NAVY)
@@ -397,14 +436,20 @@ def _check_section(pdf: FPDF, summary: dict[str, Any]):
     pdf.multi_cell(0, 5.5, summary["recommendation"], new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
 
-    if summary["sample_findings"]:
+    breakdown = summary.get("column_breakdown") or []
+    findings = breakdown or summary["sample_findings"]
+    if findings:
+        title = "Per-Column Breakdown" if breakdown else "Sample Findings"
         pdf.set_font("Helvetica", "B", 10.5)
-        pdf.cell(0, 7, "Sample Findings", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 7, title, new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 8.5)
-        for f in summary["sample_findings"]:
+        for f in findings:
             col = f.get("column", "-")
             issues = f.get("issues_found", "-")
-            extra = {k: v for k, v in f.items() if k not in ("column", "issues_found")}
+            identifiers = f.get("identifiers") or {}
+            extra = identifiers if identifiers else {
+                k: v for k, v in f.items() if k not in ("column", "issues_found", "identifiers")
+            }
             extra_str = "; ".join(f"{k}={v}" for k, v in extra.items())
             pdf.multi_cell(0, 5, f"-  {col}: {issues} issue(s)  {extra_str}"[:250], new_x="LMARGIN", new_y="NEXT")
 
@@ -485,7 +530,9 @@ def _appendix_page(pdf: FPDF, data: dict[str, Any]):
         "Each dimension score = 100 x (passed checks / total non-error checks) for that dimension. "
         "Composite score = weighted average across scorable dimensions including privacy_sensitivity "
         "(PII). HIPAA exposure may apply a proportional ceiling when PHI is detected. Weights "
-        "re-normalize when a dimension has no results.",
+        "re-normalize when a dimension has no results. HIPAA ceiling is hybrid: "
+        "min(proportional exposure cap, severity floor: high=70, medium=74, low=89). "
+        "Severity badges use the same proportional impact thresholds as dimension scores.",
         new_x="LMARGIN",
         new_y="NEXT",
     )

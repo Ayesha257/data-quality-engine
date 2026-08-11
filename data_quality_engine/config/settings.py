@@ -86,6 +86,32 @@ SETTINGS = {
     # like "Customer No.", "Supplier Code", "Invoice No", etc.
     "duplicate_key_columns": None,
     "duplicate_normalize_strings": True,
+    # Phase 2 M6 — Entity Resolution (lookup → RapidFuzz → semantic)
+    "entity_resolution_enabled": True,
+    "entity_fuzzy_auto": 0.85,
+    "entity_fuzzy_review": 0.75,
+    "entity_semantic_auto": 0.78,
+    "entity_semantic_review": 0.70,
+    "entity_semantic_model": "all-MiniLM-L6-v2",
+    "entity_max_fuzzy_candidates": 25,
+    "entity_max_semantic_candidates": 15,
+    "entity_resolution": {
+        "enabled": True,
+        "entity_types": {
+            "city": {
+                "columns": ["City", "city"],
+                "canonicals": ["Lahore", "Karachi", "Islamabad", "Rawalpindi"],
+                "aliases": {"LHR": "Lahore", "KHI": "Karachi", "ISB": "Islamabad"},
+                "eligible_roles": ["categorical", "free_text"],
+            },
+            "country": {
+                "columns": ["Country", "country"],
+                "canonicals": ["United Kingdom", "Pakistan", "United States"],
+                "aliases": {"UK": "United Kingdom", "USA": "United States", "US": "United States"},
+                "eligible_roles": ["categorical"],
+            },
+        },
+    },
     # Evidence-based uniqueness inference (see infer_uniqueness_keys /
     # uniqueness_evidence in checks/duplicates.py). A column is only treated
     # as an "expected unique" business key when its combined evidence score

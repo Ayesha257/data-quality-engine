@@ -1,26 +1,39 @@
 # Data Quality Engine
 
-Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainable data-quality reports. Every decision is deterministic and logged — no AI black boxes.
+Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainable data-quality reports — extended in Phase 2 with an AI explanation layer that narrates those findings in plain language. All decisions (what's wrong, severity, what to do) are made deterministically by Phase 1; AI only explains, never decides.
 
-**Author:** Ayesha Amer  
-**Status:** Tasks 1–5 implemented
+**Author:** Ayesha Amer
+
+**Status:** Phase 1 complete · Phase 2 M1 (foundations) + M2 (AI explanation layer) complete
 
 ---
 
 ## What it does
 
+### Phase 1 — deterministic checks
+
 | Step | What runs |
 |------|-----------|
 | **Task 1** | Header-row detection + human confirmation |
-| **Encoding Check** | CSV raw-byte encoding via chardet (+ ftfy repair helpers); skipped for Excel |
-| **Task 2** | Missing values, duplicates (full-row + business keys), type mismatches |
-| **Task 3** | Outlier detection (IQR default; optional KNN) with column-role awareness |
+| **Encoding Check** | CSV raw-byte encoding via chardet; skipped for Excel |
+| **Task 2** | Missing values, duplicates, type mismatches |
+| **Task 3** | Outlier detection (IQR / optional KNN), column-role aware |
 | **Task 4** | PII detection + masking (privacy risk reported separately) |
-| **Task 5** | Fuzzy text standardization via RapidFuzz (`standardize_values`) |
-| **Dimensions** | Schema quality, case/whitespace consistency, validity, freshness |
-| **Scoring** | Weighted 8-dimension Data Quality Score (+ separate privacy risk) |
+| **Task 5** | Fuzzy text standardization via RapidFuzz |
+| **Dimensions** | Schema quality, consistency, validity, freshness |
+| **Scoring** | Weighted 8-dimension Data Quality Score |
 
-Column classification runs after header confirmation so measurement checks (outliers, freshness, etc.) never treat invoice numbers or phone fields as statistics. Fuzzy standardization runs after PII and only on configured text roles (`categorical`, `free_text` by default).
+### Phase 2 — intelligence layer (built on top, never modifies Phase 1)
+
+| Milestone | What it adds |
+|---|---|
+| **M1 — Foundations** | Database + session management, structured JSONL run logging, per-client business rule resolution, Pydantic schemas |
+| **M2 — AI Explanation Layer** | Gemini-powered "Inspect" button on every check card, explaining Phase 1's findings in plain language |
+| **M2 — Resilience** | Rate limiting + retry/backoff around Gemini calls; automatic fallback to rule-based text if AI is unreachable — report is never blocked |
+| **M2 — PII Inspect Coverage** | PII section gets an AI explanation too, including the zero-findings case |
+| **M2 — History & Trend** | Score is recorded per client/file; next run shows an improved/declined/unchanged trend |
+
+**Design principle** (see `PHASE2_PLAN.md`): *"AI explains findings; Phase 1 makes decisions."* AI never decides severity or touches data — it only restates numbers Phase 1 already computed. If the AI call fails, the same deterministic explanation renders instead.
 
 ---
 
@@ -32,50 +45,45 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-Use the project venv as the Jupyter kernel when running notebooks.
+### Phase 2 `.env` (never commit this file)
+
+```dotenv
+GEMINI_API_KEY=your-key-here
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_TIMEOUT_SECONDS=20
+```
+
+No key configured? Reports still generate — Inspect buttons just show the rule-based explanation.
 
 ---
 
 ## Run the pipeline
 
+### Phase 1 only
+
 ```bash
-# Full pipeline on one file
 python main.py "path/to/your_file.xlsx"
-
-# One sheet only
 python main.py "path/to/your_file.xlsx" --sheet "Sheet Name"
-
-# Task 3 deep-dive (IQR + optional KNN)
-python run_task3_detailed.py "path/to/your_file.xlsx" --sheet "Sheet Name"
-
-# Batch run over local dataset folder (edit paths in the script first)
-.\run_all_task1_task2.ps1
 ```
 
-Point commands at your own `.xlsx` / `.xls` / `.csv`. A small fixture lives at `src/sample_data/sample_data.xlsx` for quick demos.
+### Phase 2 — AI-enhanced report
 
-Formats: `.xlsx`/`.xlsm` (openpyxl, calamine fallback), `.xls` (xlrd), `.csv`.
-
----
-
-## Fuzzy standardization 
-
-```python
-from data_quality_engine.engine.standardization import (
-    standardize_values,
-    apply_standardization,
-)
-
-mapping = standardize_values(df["status"], threshold=90)  # {original: canonical}
-cleaned = apply_standardization(df["status"], mapping=mapping)
+```bash
+python generate_report_phase2.py "path/to/your_file.xlsx"
+python generate_report_phase2.py "path/to/your_file.xlsx" --sheet "Sheet Name"
+python generate_report_phase2.py "path/to/your_file.csv" --out my_reports
+python generate_report_phase2.py "path/to/your_file.xlsx" --gemini-api-key "your-key-here"
 ```
 
-Config knobs in `data_quality_engine/config/settings.py`:
+Produces the Phase 1 PDF/HTML plus a Phase 2 `..._ai.html` report with an Inspect button on every check.
 
-- `fuzzy_threshold` (default 90)
-- `fuzzy_case_insensitive` (default True)
-- `fuzzy_max_unique` (default 500)
-- `fuzzy_eligible_roles` (default `categorical`, `free_text`)
+> Open generated reports via a local server, not by double-clicking (browsers block scripts on `file://` pages):
+> ```bash
+> cd reports && python -m http.server 8000
+> # open http://localhost:8000/your_report.html
+> ```
+
+Supported formats: `.xlsx`/`.xlsm`, `.xls`, `.csv`.
 
 ---
 
@@ -83,35 +91,22 @@ Config knobs in `data_quality_engine/config/settings.py`:
 
 ```
 data_quality_engine/
-  config/          # thresholds, rubric weights, domain rules
-  engine/
-    ingestion.py   # read + header detection
-    checkpoint.py  # human-in-the-loop confirms
-    column_classifier.py
-    checks/        # missing, duplicates, types, outliers, schema, …
-    pii/           # detect + mask
-    standardization/  # RapidFuzz fuzzy_match (plan Task 5)
-    scoring.py     # 8-dimension composite score
-main.py            # CLI entrypoint
-notebooks/         # task walkthroughs (import the package where possible)
-tests/             # pytest suite
-plan.md            # Phase 1 technical plan
+  config/                # Phase 1 thresholds, rubric weights, domain rules
+  engine/                 # ingestion, checks, PII, standardization, scoring
+  phase2/
+    ai_explainer.py       # Gemini calls, prompts, retry, fallback text
+    enhanced_report.py    # injects Inspect buttons into the HTML report
+    database/             # SQLAlchemy models + sessions
+    schemas/               # Pydantic models
+    rules.py              # per-client rule resolution
+    logging_setup.py      # structured JSONL logs
+config/clients/           # per-client rule overrides
+main.py                   # Phase 1 CLI entrypoint
+generate_report_phase2.py # Phase 2 CLI entrypoint
+notebooks/                 # task walkthroughs
+tests/                     # pytest suite
+plan.md / PHASE2_PLAN.md   # technical plans
 ```
-
----
-
-## Notebooks
-
-| Notebook | Focus |
-|----------|--------|
-| `notebooks/01_task1_header_detection.ipynb` | Header heuristics (exploratory + package) |
-| `notebooks/02_task2_core_profiling.ipynb` | Missing / types / duplicates |
-| `notebooks/03_task3_outlier_detection.ipynb` | IQR + optional KNN |
-| `notebooks/04_task4_pii_detection_masking.ipynb` | PII detect/mask (imports package) |
-| `notebooks/05_task5_fuzzy_standardization.ipynb` | RapidFuzz standardization (Task 5) |
-| `notebooks/schema_consistency_validity_freshness_scoring.ipynb` | Dimensions + composite score |
-
-See `notebooks/README.md`. Source of truth for demos: package code under `data_quality_engine/`.
 
 ---
 
@@ -119,15 +114,23 @@ See `notebooks/README.md`. Source of truth for demos: package code under `data_q
 
 ```bash
 python -m pytest tests -q
+pytest tests/test_main_pipeline.py -v          # Phase 1
+pytest tests/test_phase2_m1_setup.py -v         # Phase 2 foundations
+pytest tests/test_phase2_m2_additions.py -v     # Phase 2 AI layer
 ```
 
 ---
 
 ## Design notes (for review)
 
-- Checks return a shared `CheckResult` and fail soft (`status="error"`) instead of crashing the run.
-- PII samples printed by the CLI are already masked; privacy risk is **not** subtracted from the quality score.
-- Role-skipped columns (e.g. outliers on identifiers) are excluded from dimension pass-ratios so scores are not artificially inflated.
-- Fuzzy standardization feeds the consistency dimension alongside case/whitespace consistency; the CLI reports mappings without rewriting the working frame until you call `apply_standardization`.
-- CSV **Encoding Check** uses chardet (with optional low-confidence fallbacks) and is skipped for Excel; `ingestion._sniff_csv_encoding` delegates to `check_encoding`.
-- Phase 1 intentionally omits PDF reporting wiring — that remains in `plan.md` for later build-order items.
+**Phase 1**
+- Checks fail soft (`status="error"`) instead of crashing the run.
+- Role-skipped columns (e.g. outliers on identifiers) are excluded from pass-ratios so scores aren't artificially inflated.
+- A sheet with no detectable header is skipped with a message rather than aborting the whole file.
+
+**Phase 2**
+- `phase2/` only ever calls **into** `engine/`, never the other way — Phase 1 works standalone even without Phase 2 installed.
+- `ai_explainer.py` never raises: any failure (missing key, network, rate limit, bad response) resolves to the same rule-based fallback built from Phase 1's own data.
+- AI responses follow a fixed structure (`WHAT'S WRONG` / `WHY IT MATTERS` / `WHAT TO DO`); anything that doesn't match renders as plain text instead of breaking.
+- Every AI call is logged with its outcome, so AI availability is auditable after the fact.
+- `enhanced_report.py` never modifies Phase 1's report generator — it injects into the output, so worst case is still a complete, valid Phase 1 report.

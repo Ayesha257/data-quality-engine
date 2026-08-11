@@ -3,7 +3,7 @@
 **Project:** Data Quality Engine  
 **Author:** Ayesha Amer  
 **Phase:** Phase 2 — Module 9 (Compliance Layer)  
-**Status:** Ready for implementation  
+**Status:** Complete — wired into `main.py` (`run_pipeline`, after Task 4 PII, before Task 6 scoring); 15/15 tests passing in `tests/test_hipaa_compliance.py`  
 **Baseline:** Phase 1 `detect_pii.py` / `mask_pii.py` (Presidio + custom regex); Phase 2 M3 Readiness pattern (`CheckResult`-compatible, fault-tolerant, no AI)  
 **Audience:** Human developers and AI coding assistants. Every module below includes exact inputs, outputs, function signatures, and behavior rules so generated code is consistent, testable, and matches the chosen architecture — no guessing required.
 
@@ -532,17 +532,40 @@ Insert **after Phase 1 PII detection, before scoring and report generation**:
 | `generate_report_phase2.py` | Same hook after `pii_summary_by_column` built. |
 | `phase2/api/workers.py` | Add stage `'hipaa compliance'` at ~25% progress between PII masking and quality checks. |
 
-### 5.2 Scoring Model — Separate Compliance Section (Not a Rubric Dimension)
+### 5.2 Scoring Model — PII in Composite; HIPAA Exposure Ceiling
 
-**Do not add an 8th rubric dimension.** `scoring.py` already states: *"Privacy risk (Task 4 PII) is reported separately and never folded into the composite."* HIPAA compliance follows the same rule:
+**PII (`privacy_sensitivity`)** is a weighted rubric dimension (default weight **10%**).
+Task 4 summaries are auto-materialized into `privacy_sensitivity` CheckResults inside
+`compute_data_quality_score()` when `pii_summary_by_column` is supplied.
 
-| Layer | Where it appears | Affects composite score? |
-|---|---|---|
-| Phase 1 PII (`detect_pii`) | Report → "Sensitive Data Assessment" | No |
-| HIPAA PHI (this module) | Report → **"HIPAA PHI Compliance Scan"** section | No |
-| M3 ML Readiness | Report → "ML Model Readiness Assessment" | No |
+**HIPAA (M9)** remains a **separate exposure score** (not a rubric dimension), per the
+original plan — but it **does affect the headline composite** via a **proportional
+ceiling** so elevated PHI exposure cannot coexist with a score of 100:
 
-`CheckResult.dimension` for `check_name="hipaa_phi"` is always `""`. Downstream code must not route these results into `compute_data_quality_score()`.
+`cap = 100 - (exposure_score/100) * (100 - 59)`
+
+| exposure_score | Composite ceiling (approx.) |
+|---|---|
+| 0 | no cap |
+| 33 | ~86 |
+| 66 | ~73 |
+| 100 | 59 |
+
+**Critical dimension labels** (≥50% of a dimension's checks failed — same threshold
+as `report_generator._severity_from_ratio`) are shown in reports for visibility but
+**do not** apply a flat composite cap. PII prevalence is reflected proportionally
+via the weighted `privacy_sensitivity` dimension (e.g. 1/10 PII columns ≈ 90% dim
+score vs 8/10 ≈ 20%).
+
+| Layer | Where it appears | In weighted rubric? | Affects headline score? |
+|---|---|---|---|
+| Phase 1 PII (`detect_pii`) | Report → "Sensitive Data Assessment" | Yes → `privacy_sensitivity` | Yes |
+| HIPAA PHI (M9) | Report → "HIPAA PHI Compliance Scan" | No (separate exposure score) | Yes (via ceiling) |
+| M3 ML Readiness | Report → "ML Model Readiness Assessment" | No | No |
+
+`CheckResult.dimension` for `check_name="hipaa_phi"` remains `""`. HIPAA CheckResults
+are **not** passed into `compute_data_quality_score()` as a rubric dimension — only
+the `HipaaComplianceScore` exposure object is passed for ceiling logic.
 
 ### 5.3 Report Section (template text — no AI)
 
@@ -603,7 +626,7 @@ Recommended Actions (rule-based, not AI):
 
 ---
 
-## 7. Testing Plan (`tests/phase2/test_hipaa_compliance.py`)
+## 7. Testing Plan (`tests/test_hipaa_compliance.py`)
 
 Minimum 15 test cases:
 
@@ -697,24 +720,25 @@ hipaa_compliance:
 4. Extend `engine/pii/mask_pii.py` — tokens for new types  
 5. `phase2/compliance/mapper.py` — mapping unit tests  
 6. `phase2/compliance/assessor.py` + `scorer.py`  
-7. Wire into `main.py` / `generate_report_phase2.py`  
+7. Wire into `main.py` / `generate_report_phase2.py` ✅ (`main.py` done — `_print_hipaa_compliance_results` in `run_pipeline`)  
 8. Report templates (HTML/PDF Compliance section)  
-9. `tests/phase2/test_hipaa_compliance.py` — full suite  
-10. End-to-end run on `hipaa_phi_sample.xlsx`
+9. `tests/test_hipaa_compliance.py` — full suite ✅ (15/15 passing)  
+10. End-to-end run on `hipaa_phi_sample.xlsx` ✅ (`tests/fixtures/hipaa_phi_sample.xlsx`)
 
 ---
 
 ## 11. Exit Criteria
 
-- [ ] All 16 assessable identifiers mapped from Presidio/custom types  
-- [ ] #16 and #17 explicitly reported as "Not assessed" in every output format  
-- [ ] Non-certification disclaimer in every report  
-- [ ] `assess_hipaa_compliance_as_check_results()` returns valid `CheckResult` list  
-- [ ] No raw PHI in logs, details, or reports (counts only)  
-- [ ] Pipeline continues on assessment failure (`status="error"`)  
-- [ ] 15+ tests passing  
-- [ ] No new rubric dimension; Compliance section separate from composite score  
-- [ ] Phase 1 `detect_pii` overlap resolution preserved — no garble regression  
+- [x] All 16 assessable identifiers mapped from Presidio/custom types  
+- [x] #16 and #17 explicitly reported as "Not assessed" in every output format  
+- [x] Non-certification disclaimer in every report  
+- [x] `assess_hipaa_compliance_as_check_results()` returns valid `CheckResult` list  
+- [x] No raw PHI in logs, details, or reports (counts only)  
+- [x] Pipeline continues on assessment failure (`status="error"`)  
+- [x] 15+ tests passing  
+- [x] No separate HIPAA rubric dimension; exposure score separate with composite ceiling  
+- [x] Phase 1 `detect_pii` overlap resolution preserved — no garble regression  
+- [x] Wired into `main.py` `run_pipeline` after PII detection, before scoring  
 
 ---
 

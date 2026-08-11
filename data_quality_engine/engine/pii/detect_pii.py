@@ -348,6 +348,27 @@ def _detect_pii_cached(text: str) -> tuple:
     )
 
 
+_REGISTRATION_COLUMN_KEYWORDS = (
+    "company reg",
+    "reg no",
+    "reg.",
+    "registration no",
+    "registration number",
+    "crn",
+    "company number",
+    "companies house",
+)
+
+
+def _is_business_registration_column(name: str) -> bool:
+    """Columns holding company/VAT/EORI registration tokens — not contact PII."""
+    if any(k in name for k in _REGISTRATION_COLUMN_KEYWORDS):
+        return True
+    if "eori" in name:
+        return True
+    return "vat" in name
+
+
 def _infer_expected_types(column_name: str | None) -> set[str] | None:
     """Infer likely PII types from a column name."""
     if not column_name:
@@ -355,6 +376,9 @@ def _infer_expected_types(column_name: str | None) -> set[str] | None:
     name = str(column_name).strip().lower()
     if not name:
         return None
+
+    if _is_business_registration_column(name):
+        return set()
 
     hints: set[str] = set()
     if any(k in name for k in ("name", "customer", "person", "employee", "contact")):
@@ -486,7 +510,10 @@ def detect_pii_in_series(series) -> dict[str, Any]:
     issue_rows = 0
     col_name = str(series.name) if series.name is not None else None
     inferred = _infer_expected_types(col_name)
-    allowed_types = set(inferred or _BASELINE_TYPES)
+    if inferred is not None:
+        allowed_types = set(inferred)
+    else:
+        allowed_types = set(_BASELINE_TYPES)
 
     # Datetime columns: never regex-scan for IP/PHONE/MOBILE/CNIC/CARD
     # (ISO dates look like dotted IPs / digit runs after str()).

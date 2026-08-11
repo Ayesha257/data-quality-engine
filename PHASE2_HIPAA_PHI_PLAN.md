@@ -542,14 +542,15 @@ Task 4 summaries are auto-materialized into `privacy_sensitivity` CheckResults i
 original plan — but it **does affect the headline composite** via a **proportional
 ceiling** so elevated PHI exposure cannot coexist with a score of 100:
 
-`cap = 100 - (exposure_score/100) * (100 - 59)`
+`cap = min(proportional_cap, severity_floor)`
 
-| exposure_score | Composite ceiling (approx.) |
+| Component | Formula |
 |---|---|
-| 0 | no cap |
-| 33 | ~86 |
-| 66 | ~73 |
-| 100 | 59 |
+| proportional_cap | `100 - (exposure_score/100) * (100 - 59)` |
+| severity_floor | high → 70, medium → 74, low → 89 |
+
+The **stricter** (lower) value wins. High-volume exposure keeps the proportional
+cap; moderate exposure with sensitive identifiers uses the severity floor.
 
 **Critical dimension labels** (≥50% of a dimension's checks failed — same threshold
 as `report_generator._severity_from_ratio`) are shown in reports for visibility but

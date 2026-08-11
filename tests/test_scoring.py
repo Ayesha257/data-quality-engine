@@ -116,7 +116,6 @@ def test_proportional_pii_prevalence_one_vs_eight_columns():
     assert out_high["dimension_scores"]["privacy_sensitivity"]["score"] == 20.0
     assert out_low["data_quality_score"] == out_low["data_quality_score_raw"]
     assert out_high["data_quality_score"] == out_high["data_quality_score_raw"]
-    # 1/10: privacy 90% -> composite ~99; 8/10: privacy 20% -> composite ~92
     assert out_low["data_quality_score"] >= 98.0
     assert out_high["data_quality_score"] <= 93.0
 
@@ -133,6 +132,7 @@ def test_no_flat_critical_cap_when_most_dimensions_perfect():
     out = compute_data_quality_score(base_dims, pii_summary_by_column=pii_summary)
     assert out["dimension_scores"]["privacy_sensitivity"]["severity"] == "Critical"
     assert out["data_quality_score"] == out["data_quality_score_raw"]
+    assert out["compliance_adjusted_score"] == out["data_quality_score_raw"]
     assert out["data_quality_score"] >= 90.0
     assert out["data_quality_score"] > CRITICAL_SEVERITY_COMPOSITE_CAP
     assert not any(
@@ -150,8 +150,65 @@ def test_hipaa_proportional_cap_scales_with_exposure():
     )
     out_low = compute_data_quality_score(dimension_results, hipaa_exposure=low)
     out_high = compute_data_quality_score(dimension_results, hipaa_exposure=high)
-    assert out_low["data_quality_score"] > out_high["data_quality_score"]
-    assert out_high["data_quality_score"] >= 59.0
+    assert out_low["data_quality_score"] == 100.0
+    assert out_high["data_quality_score"] == 100.0
+    assert out_low["compliance_adjusted_score"] > out_high["compliance_adjusted_score"]
+    assert out_high["compliance_adjusted_score"] >= 70.0
+
+
+def test_hipaa_severity_tier_binds_when_proportional_too_lenient():
+    """Medium severity SSN: proportional ~82 must tighten to tier 74."""
+    from data_quality_engine.engine.scoring import _hipaa_composite_cap
+
+    cap, binding = _hipaa_composite_cap(43.48, "medium")
+    assert binding == "severity_tier"
+    assert cap == 74.0
+
+    medium = HipaaComplianceScore(
+        exposure_score=43.48, identifiers_detected=1, columns_affected=1, severity="medium"
+    )
+    out = compute_data_quality_score({"completeness": [_result("passed")]}, hipaa_exposure=medium)
+    assert out["data_quality_score"] == 100.0
+    assert out["compliance_adjusted_score"] == 74.0
+    assert out["composite_adjustments"]["caps_applied"][0]["cap_binding"] == "severity_tier"
+
+
+def test_hipaa_high_exposure_tier_floor_not_below_70():
+    """Max exposure cannot cap below the high-severity tier (70)."""
+    from data_quality_engine.engine.scoring import _hipaa_composite_cap
+
+    cap, binding = _hipaa_composite_cap(100.0, "high")
+    assert binding == "severity_tier"
+    assert cap == 70.0
+
+    high = HipaaComplianceScore(
+        exposure_score=100.0, identifiers_detected=4, columns_affected=10, severity="high"
+    )
+    out = compute_data_quality_score({"completeness": [_result("passed")]}, hipaa_exposure=high)
+    assert out["data_quality_score"] == 100.0
+    assert out["compliance_adjusted_score"] == 70.0
+
+
+def test_pii_and_hipaa_layers_both_apply_without_double_cap_bug():
+    """1/10 PII + low HIPAA: privacy lowers DQ score; compliance cap is separate."""
+    base_dims = {dim: [_result("passed")] for dim in RUBRIC_DIMENSIONS if dim != "privacy_sensitivity"}
+    pii_summary = {
+        f"col_{i}": (
+            {"rows_with_pii": 1, "type_counts": {"EMAIL": 1}}
+            if i == 0
+            else {"rows_with_pii": 0, "type_counts": {}}
+        )
+        for i in range(10)
+    }
+    hipaa = HipaaComplianceScore(
+        exposure_score=30.0, identifiers_detected=1, columns_affected=1, severity="low"
+    )
+    out = compute_data_quality_score(base_dims, pii_summary_by_column=pii_summary, hipaa_exposure=hipaa)
+    assert out["data_quality_score"] == 99.0
+    assert out["data_quality_score_raw"] == 99.0
+    assert out["dimension_scores"]["privacy_sensitivity"]["score"] == 90.0
+    assert out["compliance_adjusted_score"] == 89.0
+    assert len(out["composite_adjustments"]["caps_applied"]) == 1
 
 
 def test_clean_data_with_no_pii_scores_100():

@@ -28,10 +28,15 @@ Design choices:
      (duplicates, missing) or column pass/fail rates (PII). No flat
      "Critical = 59" ceiling — that collapsed 1/10 and 8/10 PII columns
      to the same headline score.
-   - HIPAA exposure (separate M9 score) applies a proportional ceiling:
-     cap = 100 - (exposure_score/100) * (100 - 59). exposure 0 -> no cap;
-     exposure 100 -> cap 59; values in between scale linearly.
-   - Final score = min(raw_composite, applicable HIPAA cap).
+   - HIPAA exposure (separate M9 score) applies a hybrid ceiling on the
+     headline score. Each severity tier sets a maximum allowed composite
+     (high→70, medium→74, low→89). A proportional scale from exposure_score
+     tightens when exposure is moderate; when proportional would go below
+     the tier minimum, the tier floor applies so high-severity PHI cannot
+     collapse a otherwise-decent dataset to the high-50s.
+   - privacy_sensitivity (10% weight) penalises column-level PII in the
+     weighted average. Reports show both the raw data-quality score and
+     the compliance-adjusted score when a HIPAA cap binds.
 
 5. privacy_risk is retained for backward-compatible reporting but PII
    now also flows through privacy_sensitivity in the composite.
@@ -71,10 +76,20 @@ _DEFAULT_WEIGHTS = {
 # Severity labels for reporting (report_generator._severity_from_ratio).
 # >=50% failed checks in a dimension -> "Critical" label only — does NOT
 # trigger a flat composite cap (see _apply_composite_adjustments).
-COMPOSITE_FLOOR = 59.0
+# Minimum composite allowed by the proportional HIPAA curve at exposure=100.
+# Aligned with the high-severity tier ceiling so max exposure cannot punch
+# far below the compliance band users expect (~70, not ~59).
+COMPOSITE_FLOOR = 70.0
 
 # Legacy alias kept for tests/docs referencing the old flat cap value.
 CRITICAL_SEVERITY_COMPOSITE_CAP = COMPOSITE_FLOOR
+
+# Compliance tier ceilings — maximum allowed composite when PHI is present.
+HIPAA_SEVERITY_CEILINGS: dict[str, float] = {
+    "high": 70.0,
+    "medium": 74.0,
+    "low": 89.0,
+}
 
 
 def _severity_from_ratio(ratio: float) -> str:
@@ -231,12 +246,40 @@ def _hipaa_proportional_cap(exposure_score: float) -> float | None:
     Scale HIPAA ceiling with exposure_score (0-100).
 
     exposure 0   -> None (no cap)
-    exposure 100 -> 59
-    exposure 50  -> 79.5
+    exposure 100 -> 70 (COMPOSITE_FLOOR)
+    exposure 50  -> 85.0
     """
     if exposure_score <= 0:
         return None
     return round(100.0 - (exposure_score / 100.0) * (100.0 - COMPOSITE_FLOOR), 2)
+
+
+def _hipaa_composite_cap(exposure_score: float, severity: str) -> tuple[float | None, str]:
+    """
+    Hybrid HIPAA ceiling using severity tiers + proportional exposure.
+
+    tier_ceiling = max composite allowed for this compliance band.
+    proportional = scales with exposure_score (harsher when exposure rises).
+
+    - proportional > tier: tier binds (exposure not yet high enough to exceed band)
+    - proportional <= tier: lift to tier (proportional would be unfairly harsh)
+
+    Returns (cap_value, binding_reason).
+    """
+    proportional = _hipaa_proportional_cap(exposure_score)
+    severity_key = (severity or "none").lower()
+    tier_ceiling = HIPAA_SEVERITY_CEILINGS.get(severity_key)
+
+    if proportional is None and tier_ceiling is None:
+        return None, "none"
+    if proportional is None:
+        return tier_ceiling, "severity_tier"
+    if tier_ceiling is None:
+        return proportional, "proportional"
+    if proportional > tier_ceiling:
+        return tier_ceiling, "severity_tier"
+    # proportional <= tier: lift to tier (includes equal-at-floor case)
+    return tier_ceiling, "severity_tier"
 
 
 def _apply_composite_adjustments(
@@ -260,17 +303,27 @@ def _apply_composite_adjustments(
 
     exposure = _hipaa_exposure_block(hipaa_exposure)
     if exposure and exposure["exposure_score"] > 0:
-        hipaa_cap = _hipaa_proportional_cap(exposure["exposure_score"])
+        hipaa_cap, cap_binding = _hipaa_composite_cap(
+            exposure["exposure_score"], exposure["severity"]
+        )
         if hipaa_cap is not None and adjusted > hipaa_cap:
+            detail_parts = []
+            if cap_binding == "severity_tier":
+                detail_parts.append(
+                    f"compliance tier ({exposure['severity']} -> max {hipaa_cap:.0f})"
+                )
+            else:
+                detail_parts.append(
+                    f"proportional: 100 - (exposure/100)*({100 - COMPOSITE_FLOOR:.0f})"
+                )
             caps_applied.append(
                 {
                     "reason": "hipaa_exposure",
                     "severity": exposure["severity"],
                     "cap": hipaa_cap,
                     "exposure_score": exposure["exposure_score"],
-                    "detail": (
-                        f"proportional ceiling: 100 - (exposure/100)*({100 - COMPOSITE_FLOOR:.0f})"
-                    ),
+                    "cap_binding": cap_binding,
+                    "detail": "; ".join(detail_parts),
                 }
             )
             adjusted = hipaa_cap
@@ -297,8 +350,9 @@ def compute_data_quality_score(
 
     Returns:
         {
-            "data_quality_score": float | None,      # after caps
-            "data_quality_score_raw": float | None,  # weighted avg before caps
+            "data_quality_score": float | None,      # headline: weighted avg (pre-HIPAA cap)
+            "data_quality_score_raw": float | None,  # same as headline (backward compat)
+            "compliance_adjusted_score": float | None,  # after HIPAA cap when applicable
             "composite_adjustments": {...},
             "scorable_weight_fraction": float,
             "dimension_scores": {dim: {score, passed, total, severity, ...}},
@@ -355,17 +409,23 @@ def compute_data_quality_score(
                 available[dim] * float(weights.get(dim, 0.0)) for dim in available
             ) / scorable_weight
             raw_composite = round(raw_composite, 2)
-            composite, adjustments = _apply_composite_adjustments(
+            compliance_adjusted, adjustments = _apply_composite_adjustments(
                 raw_composite, dimension_scores, hipaa_exposure
             )
         else:
             raw_composite = None
-            composite = None
+            compliance_adjusted = None
             adjustments = {"raw_composite": None, "caps_applied": [], "critical_dimensions": []}
 
+        # Headline score = raw weighted average (fair, explainable data quality).
+        # compliance_adjusted = after HIPAA cap when PHI exposure applies.
+        headline = raw_composite
+        capped = compliance_adjusted if compliance_adjusted is not None else raw_composite
+
         return {
-            "data_quality_score": composite,
+            "data_quality_score": headline,
             "data_quality_score_raw": raw_composite,
+            "compliance_adjusted_score": capped,
             "composite_adjustments": adjustments,
             "scorable_weight_fraction": round(scorable_fraction, 4),
             "dimension_scores": dimension_scores,
@@ -377,6 +437,7 @@ def compute_data_quality_score(
         return {
             "data_quality_score": None,
             "data_quality_score_raw": None,
+            "compliance_adjusted_score": None,
             "composite_adjustments": {"raw_composite": None, "caps_applied": [], "critical_dimensions": []},
             "error": str(exc),
             "dimension_scores": {},

@@ -47,6 +47,11 @@ from data_quality_engine.phase2.readiness.temporal import analyze_temporal_suffi
 from data_quality_engine.phase2.readiness.intervals import analyze_interval_regularity
 from data_quality_engine.phase2.readiness.target import analyze_target_integrity
 from data_quality_engine.phase2.readiness.leakage import analyze_leakage_and_cardinality
+from data_quality_engine.phase2.compliance import (
+    assess_hipaa_compliance,
+    assess_hipaa_compliance_as_check_results,
+    score_hipaa_compliance,
+)
 from data_quality_engine.engine.reporting.report_generator import build_report_data
 from data_quality_engine.engine.reporting.pdf_report import generate_pdf_report
 from data_quality_engine.phase2.enhanced_report import generate_ai_enhanced_html_report
@@ -539,15 +544,13 @@ def _print_scoring_results(
     task5_summary,
     fuzzy_summary=None,
     encoding_summary=None,
+    hipaa_summary=None,
 ):
     """
-    Task 6: composite Data Quality Score against the teacher's 8-dimension
-    rubric, plus the separate Privacy Risk report. See scoring.py for why
-    dimension_results is keyed explicitly by rubric name rather than by
-    each check's own CheckResult.dimension field.
-
-    Fuzzy standardization and CSV encoding CheckResults are merged into the
-    consistency dimension alongside case/whitespace consistency results.
+    Task 6: composite Data Quality Score against the 9-dimension rubric
+    (including privacy_sensitivity / PII), plus standalone privacy risk and
+    HIPAA exposure reports. HIPAA applies a composite ceiling but is not its
+    own rubric dimension (PHASE2_HIPAA_PHI_PLAN.md §5.2).
     """
     consistency_results = list(task5_summary["consistency_results"])
     if fuzzy_summary and fuzzy_summary.get("fuzzy_results"):
@@ -569,6 +572,7 @@ def _print_scoring_results(
     score = compute_data_quality_score(
         dimension_results,
         pii_summary_by_column=task4_summary["pii_summary_by_column"],
+        hipaa_exposure=(hipaa_summary or {}).get("hipaa_exposure"),
     )
 
     print("\n=== Task 6 Results (Data Quality Score) ===")
@@ -578,20 +582,34 @@ def _print_scoring_results(
         print(f"Scoring error: {score['error']}")
     else:
         dqs = score["data_quality_score"]
+        raw = score.get("data_quality_score_raw")
         print(f"Data Quality Score: {dqs if dqs is not None else 'N/A'} / 100")
+        if raw is not None and raw != dqs:
+            print(f"  (weighted average before caps: {raw})")
+        adjustments = score.get("composite_adjustments") or {}
+        for cap in adjustments.get("caps_applied") or []:
+            if cap.get("reason") == "hipaa_exposure":
+                print(
+                    f"  HIPAA proportional cap applied ({cap.get('severity')}, "
+                    f"exposure {cap.get('exposure_score', 0):.1f}): max {cap['cap']}"
+                )
         print(f"Scorable weight fraction: {score['scorable_weight_fraction'] * 100:.1f}% of rubric")
         if score["dimensions_excluded"]:
             print(f"Dimensions excluded (no results supplied): {score['dimensions_excluded']}")
         print("-" * 70)
-        print(f"{'Dimension':20} {'Score':>8} {'Weight':>8} {'Assessed':>10} {'Skipped':>8}")
+        print(f"{'Dimension':20} {'Score':>8} {'Weight':>8} {'Severity':>10} {'Assessed':>10} {'Skipped':>8}")
         print("-" * 70)
         for dim, info in score["dimension_scores"].items():
             s = info["score"] if info["score"] is not None else "-"
             assessed = info.get("total", 0)
             skipped = info.get("skipped", 0)
-            print(f"{dim:20} {str(s):>8} {info['weight']:>8.2f} {assessed:>10} {skipped:>8}")
+            severity = info.get("severity", "None")
+            print(
+                f"{dim:20} {str(s):>8} {info['weight']:>8.2f} {severity:>10} "
+                f"{assessed:>10} {skipped:>8}"
+            )
 
-    print("\n[11] Privacy Risk (separate -- never part of the score above)")
+    print("\n[11] Privacy Risk (PII detail — scored in composite via privacy_sensitivity)")
     print("-" * 70)
     risk = score.get("privacy_risk")
     if not risk:
@@ -601,7 +619,61 @@ def _print_scoring_results(
         print(f"Columns with PII: {risk['columns_with_pii']} / {risk['total_columns']}")
         print(f"PII types found: {risk['pii_types_found']}")
 
+    hipaa_exp = score.get("hipaa_exposure")
+    if hipaa_exp:
+        print("\n[12] HIPAA Exposure (separate score — applies composite ceiling)")
+        print("-" * 70)
+        print(f"Exposure score: {hipaa_exp['exposure_score']:.1f} / 100 ({hipaa_exp['severity']})")
+        print(f"Identifiers detected: {hipaa_exp['identifiers_detected']}")
+        print(f"Columns affected: {hipaa_exp['columns_affected']}")
+
     return score
+
+
+def _print_hipaa_compliance_results(
+    task4_summary: dict,
+    row_count: int,
+    *,
+    run_id: str | None = None,
+) -> dict:
+    """
+    Phase 2 M9: HIPAA PHI compliance scan (PHASE2_HIPAA_PHI_PLAN.md §5.1).
+
+    Runs immediately after Task 4 PII detection and before Task 6 scoring.
+    Never prints raw PHI — counts and identifier labels only.
+    """
+    pii_summary = task4_summary.get("pii_summary_by_column") or {}
+    result = assess_hipaa_compliance(pii_summary, row_count, run_id=run_id)
+    exposure = score_hipaa_compliance(result)
+    check_results = assess_hipaa_compliance_as_check_results(
+        pii_summary, row_count, run_id=run_id
+    )
+
+    print("\n=== HIPAA PHI Compliance Scan (Phase 2 M9) ===")
+    print("-" * 70)
+    print(f"Scope: {result.scope}")
+    print(f"Posture: {result.status}")
+    print(f"Exposure score: {exposure.exposure_score:.1f} / 100 ({exposure.severity})")
+    print(f"Columns with PHI: {len(result.columns_with_phi)}")
+    if result.identifier_counts:
+        print("Identifier counts (assessable only):")
+        for hipaa_id, count in sorted(result.identifier_counts.items()):
+            if count > 0:
+                print(f"  {hipaa_id}: {count}")
+    for not_assessed in result.identifiers_not_assessed:
+        print(f"  {not_assessed}: NOT ASSESSED")
+    if result.warnings:
+        print("Warnings:")
+        for warning in result.warnings[:5]:
+            print(f"  - {warning}")
+    print(f"\nDisclaimer: {result.disclaimer}")
+    print("-" * 70)
+
+    return {
+        "hipaa_result": result,
+        "hipaa_exposure": exposure,
+        "hipaa_check_results": check_results,
+    }
 
 
 def _print_referential_integrity_results(
@@ -616,11 +688,10 @@ def _print_referential_integrity_results(
     caller explicitly passes --reference-dir. When skipped, that is printed
     so it is visible in the report instead of silently absent.
 
-    Not folded into the Task 6 composite score: scoring.py's 8-dimension
-    rubric (RUBRIC_DIMENSIONS in scoring.py) doesn't have "integrity" or
-    "accuracy" slots yet -- adding those is a scoring.py/plan.md change,
-    out of scope here. This prints as its own section, the same way
-    Privacy Risk is reported separately from the composite score.
+    Not folded into the Task 6 composite score: scoring.py's rubric doesn't
+    have "integrity" or "accuracy" slots yet -- adding those is a scoring.py/
+    plan.md change, out of scope here. This prints as its own section (PII
+    is now scored via privacy_sensitivity in the composite).
     """
     print("\n=== Referential Integrity (opt-in, requires --reference-dir) ===")
     if not reference_dir:
@@ -763,6 +834,7 @@ def _write_ai_enhanced_report(
     task5_summary: dict,
     fuzzy_summary: dict,
     referential_summary: dict,
+    hipaa_summary: dict | None,
     score: dict,
     readiness_summary: dict | None,
     processing_time_seconds: float,
@@ -809,6 +881,8 @@ def _write_ai_enhanced_report(
         check_results_by_name["fuzzy_match"] = non_skipped_fuzzy
     if referential_summary.get("referential_results"):
         check_results_by_name["referential_integrity"] = referential_summary["referential_results"]
+    if hipaa_summary and hipaa_summary.get("hipaa_check_results"):
+        check_results_by_name["hipaa_phi"] = hipaa_summary["hipaa_check_results"]
 
     fuzzy_results_param = {
         str(r.column): {
@@ -994,6 +1068,10 @@ def run_pipeline(
             task2_summary = _print_top_results(df)
             task3_summary = _print_task3_results(df)
             task4_summary = _print_task4_results(df)
+            # Phase 2 M9: HIPAA compliance after PII, before scoring (plan §5.1)
+            hipaa_summary = _print_hipaa_compliance_results(
+                task4_summary, len(df), run_id=run_id
+            )
             # plan.md Section 4.9 step (g): fuzzy standardization after PII
             fuzzy_summary = _print_fuzzy_standardization_results(df, classification)
             task5_summary = _print_task5_results(
@@ -1009,6 +1087,7 @@ def run_pipeline(
                 task5_summary,
                 fuzzy_summary,
                 encoding_summary,
+                hipaa_summary=hipaa_summary,
             )
             readiness_summary = _print_ml_readiness_results(df, target_column, date_column)
 
@@ -1031,6 +1110,7 @@ def run_pipeline(
                         task5_summary=task5_summary,
                         fuzzy_summary=fuzzy_summary,
                         referential_summary=referential_summary,
+                        hipaa_summary=hipaa_summary,
                         score=score,
                         readiness_summary=readiness_summary,
                         processing_time_seconds=time.perf_counter() - sheet_start,

@@ -348,7 +348,7 @@ def _score_dashboard_page(pdf: FPDF, data: dict[str, Any]):
     if pr:
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(*_NAVY)
-        pdf.cell(0, 8, "Privacy Risk (separate from score above)", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 8, "Privacy Risk (included in composite via privacy_sensitivity)", new_x="LMARGIN", new_y="NEXT")
         rgb = {"high": (185, 28, 28), "medium": (202, 138, 4), "low": (101, 163, 13), "none": (22, 163, 74)}.get(
             pr.get("risk_level", "none"), (100, 100, 100)
         )
@@ -483,9 +483,9 @@ def _appendix_page(pdf: FPDF, data: dict[str, Any]):
         0,
         5.5,
         "Each dimension score = 100 x (passed checks / total non-error checks) for that dimension. "
-        "Composite score = weighted average across scorable dimensions only (weights re-normalized "
-        "when a dimension has no results). Privacy Risk is calculated and reported separately and is "
-        "never subtracted from the composite score.",
+        "Composite score = weighted average across scorable dimensions including privacy_sensitivity "
+        "(PII). HIPAA exposure may apply a proportional ceiling when PHI is detected. Weights "
+        "re-normalize when a dimension has no results.",
         new_x="LMARGIN",
         new_y="NEXT",
     )

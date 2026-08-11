@@ -724,7 +724,7 @@ def generate_html_report(
   </div>
 
   <div class="card">
-    <h2>Privacy Risk <span class="h2-note">(separate -- never part of the score above)</span></h2>
+    <h2>Privacy Risk <span class="h2-note">(included in composite via privacy_sensitivity)</span></h2>
     {_severity_badge(risk_level.upper() if risk else "NONE", risk_sev)}
     <p style="margin-top:12px">Columns with PII: <b>{(risk or {}).get('columns_with_pii', 0)} / {(risk or {}).get('total_columns', columns)}</b></p>
     <p>Types found: {_esc(', '.join((risk or {}).get('pii_types_found', [])) or 'none')}</p>
@@ -782,7 +782,7 @@ def generate_html_report(
     <p><b>Scoring formula:</b> Each dimension score = 100 &times; (passed checks / assessed checks),
     where role-based skips and errors are excluded from "assessed". Composite = weighted average
     across scorable dimensions only, weights re-normalized when a dimension has no results.
-    Privacy Risk is calculated and reported separately -- never subtracted from the composite score.</p>
+    Privacy Risk detail is also scored in the composite via the privacy_sensitivity dimension.</p>
     <p><b>Column Quality Matrix score:</b> per column, 100 &times; (checks passed / checks assessed for
     that column), unweighted across dimensions -- a simple, directly-checkable function of the same
     check results above, not a separate model.</p>

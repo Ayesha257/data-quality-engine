@@ -66,25 +66,19 @@ SETTINGS = {
         "integrity",
         "sensitivity",
     ],
-    # Weights for the composite Data Quality Score, matching the teacher's
-    # 8-dimension rubric exactly (see scoring.py). Kept separate from the
-    # "dimensions" list above -- that list is the older internal 7-dimension
-    # set already used as CheckResult.dimension values by existing checks
-    # (e.g. type_mismatch.py and outliers.py both report dimension=
-    # "validity" internally); scoring.py maps check_name -> rubric
-    # dimension explicitly rather than trusting CheckResult.dimension,
-    # since the two dimension sets don't line up 1:1
-    # (type_mismatch -> rubric "type_reliability", not "validity";
-    # outliers -> rubric "outlier_risk", not "validity").
+    # Weights for the composite Data Quality Score (see scoring.py).
+    # Nine rubric dimensions including privacy_sensitivity (PII). HIPAA M9
+    # exposure is separate but applies a composite ceiling — not a 10th dim.
     "rubric_dimension_weights": {
-        "completeness": 0.20,
-        "validity": 0.20,
-        "type_reliability": 0.15,
-        "consistency": 0.15,
-        "uniqueness": 0.10,
-        "schema_quality": 0.10,
-        "outlier_risk": 0.05,
-        "freshness": 0.05,
+        "completeness": 0.18,
+        "validity": 0.18,
+        "type_reliability": 0.14,
+        "consistency": 0.14,
+        "uniqueness": 0.09,
+        "schema_quality": 0.09,
+        "outlier_risk": 0.04,
+        "freshness": 0.04,
+        "privacy_sensitivity": 0.10,
     },
     # Duplicates / uniqueness (Task 2)
     # When set, these columns are always checked for duplicate keys in addition

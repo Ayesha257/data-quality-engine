@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_quality_engine.engine.checkpoint import UserPrompt
+from backend.engine.checkpoint import UserPrompt
 
-import main
+import backend.main as main
 
 
 class AutoConfirmPrompt(UserPrompt):
@@ -25,7 +25,9 @@ class AutoConfirmPrompt(UserPrompt):
         return default if default is not None else ""
 
 
-SAMPLE = Path(__file__).resolve().parents[1] / "src" / "sample_data" / "sample_data.xlsx"
+from conftest import SAMPLE_XLSX
+
+SAMPLE = SAMPLE_XLSX
 
 
 def test_run_pipeline_completes_all_tasks(capsys):
@@ -49,7 +51,7 @@ def test_run_pipeline_completes_all_tasks(capsys):
 def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
     # Redirect logs to a temp dir so the test doesn't depend on / pollute
     # the repo's real logs/ directory.
-    from data_quality_engine.config.settings import SETTINGS
+    from backend.config.settings import SETTINGS
 
     monkeypatch.setitem(SETTINGS, "logs_dir", tmp_path)
 
@@ -61,10 +63,15 @@ def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
     content = log_files[0].read_text(encoding="utf-8").strip()
     assert content, "expected at least one JSONL log line"
 
-    line = json.loads(content.splitlines()[0])
-    assert line["details"]["file"] == "sample_data.xlsx"
-    assert "checks_run" in line["details"]
-    assert set(line["details"]["checks_run"]) == {
+    lines = [json.loads(raw) for raw in content.splitlines()]
+    sheet_line = next(
+        (line for line in lines if line.get("details", {}).get("sheet") and "checks_run" in line.get("details", {})),
+        None,
+    )
+    assert sheet_line is not None, "expected a sheet_processed JSONL entry"
+    assert sheet_line["details"]["file"] == "sample_data.xlsx"
+    assert "checks_run" in sheet_line["details"]
+    assert set(sheet_line["details"]["checks_run"]) == {
         "encoding",
         "column_classification",
         "missing_values",
@@ -73,6 +80,7 @@ def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
         "outliers",
         "pii",
         "fuzzy_standardization",
+        "entity_resolution",
         "schema_quality",
         "consistency",
         "validity",
@@ -81,8 +89,8 @@ def test_run_pipeline_writes_jsonl_log(tmp_path, monkeypatch):
         "scoring",
         "ml_readiness_skipped",
     }
-    assert "data_quality_score" in line["details"]
-    assert "privacy_risk_level" in line["details"]
+    assert "data_quality_score" in sheet_line["details"]
+    assert "privacy_risk_level" in sheet_line["details"]
 
 
 def test_run_pipeline_skips_empty_sheet_and_continues(tmp_path, capsys):
@@ -107,3 +115,22 @@ def test_run_pipeline_skips_empty_sheet_and_continues(tmp_path, capsys):
     assert "Sheet: Sheet3" in out
     assert "Task 6 Results (Data Quality Score)" in out
     assert "Done: Task 1-6 completed." in out
+
+
+def test_run_pipeline_includes_entity_resolution(capsys):
+    """M6 runs in the pipeline and returns per-sheet ER counts in outcomes."""
+    assert SAMPLE.exists(), f"sample data missing: {SAMPLE}"
+
+    outcomes = main.run_pipeline(str(SAMPLE), prompt=AutoConfirmPrompt())
+    out = capsys.readouterr().out
+
+    assert "Phase 2 M6 Results (Entity Resolution)" in out
+    assert isinstance(outcomes, list)
+    assert outcomes, "expected at least one sheet outcome"
+    for sheet in outcomes:
+        if sheet.get("error"):
+            continue
+        assert "entity_resolution_auto" in sheet
+        assert "entity_resolution_review" in sheet
+        assert "entity_resolution_no_match" in sheet
+        assert "entity_resolution" in sheet

@@ -105,15 +105,15 @@ export default function RulesPage() {
                 mode === "yaml" ? "bg-teal-500 text-ink-950 font-semibold" : "text-mist-400 hover:text-mist-200"
               }`}
             >
-              Raw YAML
+              Raw text
             </button>
           </div>
         </div>
         <p className="text-sm text-mist-400 mb-4">
           {mode === "form"
-            ? "Fill in one line per rule — the underlying rule file is generated automatically."
-            : "Paste raw YAML directly."}
-          {" "}Dry-run to validate, then save as{" "}
+            ? "Fill in one line per rule — the rules file is generated automatically."
+            : "Edit the rules file as plain text."}
+          {" "}Validate before saving as{" "}
           <code className="text-mist-300">
             rules_v{active?.version != null ? Number(active.version) + 1 : "1"}
           </code>
@@ -133,7 +133,7 @@ export default function RulesPage() {
         )}
         <div className="flex items-center gap-3 mt-4">
           <button className="btn-secondary" onClick={runDryRun} disabled={busy || !draft.trim()}>
-            {busy ? "Working…" : "Dry run"}
+            {busy ? "Working…" : "Validate"}
           </button>
           <button
             className="btn-primary"
@@ -168,7 +168,7 @@ export default function RulesPage() {
 
         {saveResult && (
           <div className="mt-4 text-sm text-teal-400 bg-teal-500/10 border border-teal-500/30 rounded-lg px-3 py-2">
-            Saved as version {saveResult.version} → <span className="font-mono">{saveResult.path}</span>
+            Saved as version {saveResult.version}.
           </div>
         )}
       </div>

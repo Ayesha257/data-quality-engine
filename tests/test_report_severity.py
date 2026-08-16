@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from data_quality_engine.engine.models import CheckResult
-from data_quality_engine.engine.reporting.report_generator import (
+from backend.engine.models import CheckResult
+from backend.engine.reports.report_generator import (
     CHECK_TO_DIMENSION,
     _align_check_severities_with_dimensions,
     _impact_ratio_from_results,

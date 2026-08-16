@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from data_quality_engine.engine.models import CheckResult
-from data_quality_engine.engine.reporting.html_report import _kpi_card
-from data_quality_engine.engine.reporting.report_generator import (
+from backend.engine.models import CheckResult
+from backend.engine.reports.html_report import _kpi_card
+from backend.engine.reports.report_generator import (
     CHECK_DISPLAY_NAME,
     _effective_readiness_score,
     _readiness_from_score,

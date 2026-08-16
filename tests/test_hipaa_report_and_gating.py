@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from data_quality_engine.engine.ingestion import load_with_confirmed_header, read_excel_file
-from data_quality_engine.engine.models import CheckResult
-from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
-from data_quality_engine.engine.reporting.report_generator import _summarize_check
-from data_quality_engine.phase2.compliance.scanner import assess_hipaa_compliance_as_check_results
+from backend.engine.ingestion import load_with_confirmed_header, read_excel_file
+from backend.engine.models import CheckResult
+from backend.engine.pii.detect_pii import detect_pii_in_series
+from backend.engine.reports.report_generator import _summarize_check
+from backend.engine.compliance.scanner import assess_hipaa_compliance_as_check_results
 
 
 def _customer_list_path() -> Path | None:

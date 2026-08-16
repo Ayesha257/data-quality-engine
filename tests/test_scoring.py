@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from data_quality_engine.engine.models import CheckResult
-from data_quality_engine.engine.scoring import (
+from backend.engine.models import CheckResult
+from backend.engine.scoring import (
     CRITICAL_SEVERITY_COMPOSITE_CAP,
     RUBRIC_DIMENSIONS,
     compute_data_quality_score,
 )
-from data_quality_engine.phase2.compliance.scoring import HipaaComplianceScore
+from backend.engine.compliance.scoring import HipaaComplianceScore
 
 
 def _result(status: str, dimension: str = "completeness") -> CheckResult:
@@ -158,7 +158,7 @@ def test_hipaa_proportional_cap_scales_with_exposure():
 
 def test_hipaa_severity_tier_binds_when_proportional_too_lenient():
     """Medium severity SSN: proportional ~82 must tighten to tier 74."""
-    from data_quality_engine.engine.scoring import _hipaa_composite_cap
+    from backend.engine.scoring import _hipaa_composite_cap
 
     cap, binding = _hipaa_composite_cap(43.48, "medium")
     assert binding == "severity_tier"
@@ -175,7 +175,7 @@ def test_hipaa_severity_tier_binds_when_proportional_too_lenient():
 
 def test_hipaa_high_exposure_tier_floor_not_below_70():
     """Max exposure cannot cap below the high-severity tier (70)."""
-    from data_quality_engine.engine.scoring import _hipaa_composite_cap
+    from backend.engine.scoring import _hipaa_composite_cap
 
     cap, binding = _hipaa_composite_cap(100.0, "high")
     assert binding == "severity_tier"

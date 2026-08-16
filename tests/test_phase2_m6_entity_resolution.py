@@ -13,23 +13,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from data_quality_engine.phase2.database import init_db, get_session
-from data_quality_engine.phase2.database.models import CanonicalMapping
-from data_quality_engine.phase2.entity_resolution.cascade import EntityResolutionCascade
-from data_quality_engine.phase2.entity_resolution.candidates import narrow_candidates
-from data_quality_engine.phase2.entity_resolution.config import load_entity_resolution_config
-from data_quality_engine.phase2.entity_resolution.lookup import LookupTable
-from data_quality_engine.phase2.entity_resolution.models import (
+from backend.database import init_db, get_session
+from backend.database.models import CanonicalMapping
+from backend.engine.entity_resolution.cascade import EntityResolutionCascade
+from backend.engine.entity_resolution.candidates import narrow_candidates
+from backend.engine.entity_resolution.config import load_entity_resolution_config
+from backend.engine.entity_resolution.lookup import LookupTable
+from backend.engine.entity_resolution.models import (
     EntityResolutionConfig,
     EntityResolutionThresholds,
     EntityTypeConfig,
     ResolutionDecision,
 )
-from data_quality_engine.phase2.entity_resolution.normalize import safe_normalize
-from data_quality_engine.phase2.entity_resolution.privacy import looks_like_pii, safe_display_value
-from data_quality_engine.phase2.entity_resolution.repository import load_lookup_from_db, upsert_mapping
-from data_quality_engine.phase2.entity_resolution.service import resolve_dataframe
-from data_quality_engine.phase2.entity_resolution.semantic import SemanticMatcher
+from backend.engine.entity_resolution.normalize import safe_normalize
+from backend.engine.entity_resolution.privacy import looks_like_pii, safe_display_value
+from backend.engine.entity_resolution.repository import load_lookup_from_db, upsert_mapping
+from backend.engine.entity_resolution.service import resolve_dataframe
+from backend.engine.entity_resolution.semantic import SemanticMatcher
 
 
 def _city_config(**overrides) -> EntityResolutionConfig:
@@ -150,7 +150,7 @@ class TestTier3Semantic:
             def encode(self, texts, normalize_embeddings=True):
                 return fake_encode(texts, normalize_embeddings)
 
-        import data_quality_engine.phase2.entity_resolution.semantic as sem_mod
+        import backend.engine.entity_resolution.semantic as sem_mod
 
         monkeypatch.setitem(sem_mod._MODEL_CACHE, "all-MiniLM-L6-v2", FakeST())
 

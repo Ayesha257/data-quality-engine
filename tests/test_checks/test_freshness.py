@@ -6,11 +6,11 @@ from datetime import datetime
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.freshness import (
+from backend.engine.checks.freshness import (
     check_freshness,
     check_freshness_frame,
 )
-from data_quality_engine.engine.column_classifier import ROLE_DATE, ROLE_MEASUREMENT
+from backend.engine.column_classifier import ROLE_DATE, ROLE_MEASUREMENT
 
 
 def test_fresh_date_column_passes():

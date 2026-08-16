@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from data_quality_engine.engine.checkpoint import (
+from backend.engine.checkpoint import (
     CLIPrompt,
     UserPrompt,
     apply_scope,

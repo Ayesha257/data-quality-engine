@@ -1,14 +1,15 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const navItems = [
   { to: "/upload", label: "New Scan" },
   { to: "/runs", label: "Runs" },
   { to: "/rules", label: "Rules" },
+  { to: "/profile", label: "Profile" },
 ];
 
 export default function Layout() {
-  const { email, logout } = useAuth();
+  const { email, fullName, logout } = useAuth();
   const navigate = useNavigate();
 
   return (
@@ -41,10 +42,15 @@ export default function Layout() {
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-ink-800 border border-ink-600">
+            <Link
+              to="/profile"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-ink-800 border border-ink-600 hover:border-teal-500/40 transition-colors"
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-              <span className="font-mono text-xs text-mist-300">{email}</span>
-            </div>
+              <span className="font-mono text-xs text-mist-300 truncate max-w-[180px]">
+                {fullName || email}
+              </span>
+            </Link>
             <button
               className="btn-ghost !px-3 !py-2 text-sm"
               onClick={() => {

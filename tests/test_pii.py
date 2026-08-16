@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.pii.detect_pii import (
+from backend.engine.pii.detect_pii import (
     TYPE_ADDRESS,
     TYPE_BANK_ACCOUNT,
     TYPE_CARD,
@@ -26,7 +26,7 @@ from data_quality_engine.engine.pii.detect_pii import (
     detect_pii_in_series,
     resolve_overlaps,
 )
-from data_quality_engine.engine.pii.mask_pii import mask_pii
+from backend.engine.pii.mask_pii import mask_pii
 
 
 def test_detect_email_and_phone():

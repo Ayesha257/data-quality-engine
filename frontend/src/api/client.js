@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   token: "dqe_token",
   clientId: "dqe_client_id",
   email: "dqe_email",
+  fullName: "dqe_full_name",
 };
 
 const client = axios.create({ baseURL: BASE_URL });
@@ -34,7 +35,7 @@ client.interceptors.response.use(
 
 // ---------------------------------------------------------------------
 // Endpoint bindings — maps 1:1 to routes in
-// data_quality_engine/phase2/api/routes.py + auth_routes.py.
+// backend/routes/routes.py + backend/routes/authroutes.py + backend/routes/profileroutes.py.
 // ---------------------------------------------------------------------
 
 export const api = {
@@ -50,6 +51,22 @@ export const api = {
     client.post("/v1/auth/login", { email, password }).then((r) => r.data),
 
   me: () => client.get("/v1/auth/me").then((r) => r.data),
+
+  // --- profile -----------------------------------------------------
+  getProfile: () => client.get("/v1/profile").then((r) => r.data),
+
+  updateProfile: ({ fullName }) =>
+    client.patch("/v1/profile", { full_name: fullName ?? null }).then((r) => r.data),
+
+  changePassword: ({ currentPassword, newPassword }) =>
+    client
+      .post("/v1/profile/change-password", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      .then((r) => r.data),
+
+  getProfileStats: () => client.get("/v1/profile/stats").then((r) => r.data),
 
   // --- data quality pipeline ----------------------------------------
   uploadFile: ({ clientId, file, sheetName, targetColumn, dateColumn, writeReport, geminiApiKey }) => {
@@ -71,6 +88,23 @@ export const api = {
   getRunStatus: (runId) => client.get(`/v1/runs/${runId}/status`).then((r) => r.data),
 
   getRunResults: (runId) => client.get(`/v1/runs/${runId}/results`).then((r) => r.data),
+
+  getEntityResolutionResults: (runId) =>
+    client.get(`/v1/entity-resolution/results/${runId}`).then((r) => r.data),
+
+  analyzeEntityResolution: ({ clientId, file, sheetName, geminiApiKey }) => {
+    const form = new FormData();
+    form.append("file", file);
+    const params = { client_id: clientId };
+    if (sheetName) params.sheet_name = sheetName;
+    if (geminiApiKey) params.gemini_api_key = geminiApiKey;
+    return client
+      .post("/v1/analyze/entity-resolution", form, {
+        params,
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
 
   // A plain <a href> can't attach the Authorization header, so we fetch
   // the HTML report as an authenticated blob and hand back an object URL.

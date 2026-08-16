@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from data_quality_engine.engine.checks.outliers import (
+from backend.engine.checks.outliers import (
     detect_outliers,
     detect_outliers_frame,
 )

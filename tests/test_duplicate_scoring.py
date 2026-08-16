@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.duplicates import check_duplicates_frame
-from data_quality_engine.engine.scoring import compute_data_quality_score
+from backend.engine.checks.duplicates import check_duplicates_frame
+from backend.engine.scoring import compute_data_quality_score
 
 
 def _composite_for_df(df: pd.DataFrame) -> float:

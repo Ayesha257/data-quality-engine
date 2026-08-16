@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.encoding import (
+from backend.engine.checks.encoding import (
     check_encoding,
     repair_encoding,
     repair_encoding_frame,
@@ -111,7 +111,7 @@ def test_check_encoding_respects_sample_size():
 
 
 def test_check_encoding_low_confidence_runs_fallback(monkeypatch):
-    from data_quality_engine.engine.checks import encoding as enc_mod
+    from backend.engine.checks import encoding as enc_mod
 
     monkeypatch.setattr(enc_mod, "_chardet_detect_cached", lambda _sample: ("ascii", 0.1))
     raw = "Café".encode("utf-8")
@@ -128,7 +128,7 @@ def test_check_encoding_low_confidence_runs_fallback(monkeypatch):
 
 
 def test_chardet_cache_reuses_identical_sample():
-    from data_quality_engine.engine.checks.encoding import _chardet_detect_cached
+    from backend.engine.checks.encoding import _chardet_detect_cached
 
     _chardet_detect_cached.cache_clear()
     sample = b"hello world cafe"

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.validity import check_validity_frame
-from data_quality_engine.engine.column_classifier import (
+from backend.engine.checks.validity import check_validity_frame
+from backend.engine.column_classifier import (
     ROLE_CATEGORICAL,
     ROLE_DATE,
     ROLE_MEASUREMENT,

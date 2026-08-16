@@ -5,29 +5,29 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
-from data_quality_engine.engine.pii.mask_pii import mask_pii
-from data_quality_engine.phase2.compliance.compliance_status import (
+from backend.engine.pii.detect_pii import detect_pii_in_series
+from backend.engine.pii.mask_pii import mask_pii
+from backend.engine.compliance.compliance_status import (
     FORBIDDEN_DETAIL_KEYS,
     map_pii_summary_to_hipaa,
 )
-from data_quality_engine.phase2.compliance.identifiers import (
+from backend.engine.compliance.identifiers import (
     IDENTIFIERS_NOT_ASSESSED,
     HipaaIdentifier,
     NON_CERTIFICATION_DISCLAIMER,
     SCOPE_LABEL,
 )
-from data_quality_engine.phase2.compliance.recognizers import (
+from backend.engine.compliance.recognizers import (
     MRN_SPEC,
     apply_column_hint_boost,
     vin_checksum_valid,
 )
-from data_quality_engine.phase2.compliance.scanner import (
+from backend.engine.compliance.scanner import (
     assess_hipaa_compliance,
     assess_hipaa_compliance_as_check_results,
 )
-from data_quality_engine.phase2.compliance.scoring import score_hipaa_compliance
-from data_quality_engine.phase2.compliance.scanner import HipaaComplianceResult
+from backend.engine.compliance.scoring import score_hipaa_compliance
+from backend.engine.compliance.scanner import HipaaComplianceResult
 
 
 def _summaries(df: pd.DataFrame) -> dict[str, dict]:
@@ -150,7 +150,7 @@ def test_assessor_never_raises_on_malformed_summary(monkeypatch):
         raise RuntimeError("simulated mapper failure")
 
     monkeypatch.setattr(
-        "data_quality_engine.phase2.compliance.scanner._map_all_columns",
+        "backend.engine.compliance.scanner._map_all_columns",
         _boom,
     )
     result = assess_hipaa_compliance({"col": {"type_counts": {"EMAIL": 1}}}, 1)

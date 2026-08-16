@@ -1,6 +1,6 @@
 # Notebooks
 
-Task walkthroughs with working cells and short notes. Prefer the **package** (`data_quality_engine/`) as the source of truth — early Task 1–3 notebooks keep small educational re-implementations so the heuristics stay readable, then show the same behaviour via package imports.
+Task walkthroughs with working cells and short notes. Prefer the **package** (`backend/`) as the source of truth — early Task 1–3 notebooks keep small educational re-implementations so the heuristics stay readable, then show the same behaviour via package imports.
 
 | File | Content |
 |------|---------|

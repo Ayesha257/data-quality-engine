@@ -8,9 +8,9 @@ already existed in your project.
 
 | File | Type | What changed |
 |---|---|---|
-| `data_quality_engine/phase2/ai_explainer.py` | replace | rate limiter, retry/backoff, PII adapter, trend-aware executive summary, fixed deprecated model default |
-| `data_quality_engine/phase2/enhanced_report.py` | replace | PII Inspect button injection, score-trend banner injection |
-| `data_quality_engine/phase2/history.py` | **new** | saves each run, computes score trend vs. last run |
+| `backend/phase2/ai_explainer.py` | replace | rate limiter, retry/backoff, PII adapter, trend-aware executive summary, fixed deprecated model default |
+| `backend/phase2/enhanced_report.py` | replace | PII Inspect button injection, score-trend banner injection |
+| `backend/phase2/history.py` | **new** | saves each run, computes score trend vs. last run |
 | `generate_report_phase2.py` | replace | new `--client-id` flag, wires history in |
 | `requirements.txt` | replace | added `requests`, `python-dotenv` (were imported but missing) |
 | `tests/test_phase2_m2_additions.py` | **new** | 20 tests covering all of the above |

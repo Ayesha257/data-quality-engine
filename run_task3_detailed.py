@@ -5,13 +5,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from data_quality_engine.config.settings import SETTINGS
-from data_quality_engine.engine.ingestion import (
+from backend.config.settings import SETTINGS
+from backend.engine.ingestion import (
     detect_header_row,
     load_with_confirmed_header,
     read_excel_file,
 )
-from data_quality_engine.engine.checks.outliers import detect_outliers_frame
+from backend.engine.checks.outliers import detect_outliers_frame
 
 
 def main() -> None:
@@ -31,7 +31,7 @@ def main() -> None:
     else:
         candidates = [
             SETTINGS["dataset_dir"] / "Booked Orders copy.csv",
-            Path("src/sample_data/sample_data.xlsx"),
+            Path("tests/fixtures/sample_data.xlsx"),
             Path("sample_data/sample_data.xlsx"),
         ]
         path = next((p for p in candidates if p.exists()), candidates[-1])

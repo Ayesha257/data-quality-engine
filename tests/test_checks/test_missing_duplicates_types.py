@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.duplicates import (
+from backend.engine.checks.duplicates import (
     check_duplicates,
     check_duplicates_frame,
     infer_uniqueness_keys,
 )
-from data_quality_engine.engine.checks.missing_values import check_missing_values
-from data_quality_engine.engine.checks.type_mismatch import (
+from backend.engine.checks.missing_values import check_missing_values
+from backend.engine.checks.type_mismatch import (
     check_type_consistency,
     check_type_consistency_frame,
 )

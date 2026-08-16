@@ -17,9 +17,10 @@ import time
 
 import pytest
 
-from data_quality_engine.phase2 import ai_explainer, history
-from data_quality_engine.phase2.database import init_db
-from data_quality_engine.phase2.enhanced_report import (
+from backend.engine.ai_explanation import ai_explainer
+from backend.database import history
+from backend.database import init_db
+from backend.engine.ai_explanation.enhanced_report import (
     _inject_pii_inspect,
     _inject_trend_banner,
 )
@@ -114,7 +115,7 @@ class TestRetryBackoff:
         }
         result = ai_explainer.explain_check("missing_values", summary, api_key="fake-key")
         assert result.source == "fallback"
-        assert "WHAT'S WRONG" in result.text
+        assert "WHAT THIS MEANS" in result.text
 
 
 # ---------------------------------------------------------------------------

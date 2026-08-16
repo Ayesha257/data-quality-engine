@@ -62,7 +62,7 @@ The 18 identifiers below follow the [HHS Safe Harbor de-identification standard]
 ## 3. Project Structure
 
 ```
-data_quality_engine/
+backend/
 ├── engine/
 │   └── pii/
 │       ├── detect_pii.py          # EXTEND: register HIPAA-specific recognizers
@@ -356,7 +356,7 @@ Produces `CheckResult`-compatible output for pipeline uniformity **and** a riche
 from dataclasses import dataclass, field
 from typing import Any
 
-from data_quality_engine.engine.models import CheckResult
+from backend.engine.models import CheckResult
 
 @dataclass
 class HipaaComplianceResult:

@@ -21,11 +21,11 @@ import math
 import pandas as pd
 import pytest
 
-from data_quality_engine.phase2.readiness.intervals import analyze_interval_regularity
-from data_quality_engine.phase2.readiness.leakage import analyze_leakage_and_cardinality
-from data_quality_engine.phase2.readiness.scorer import score_readiness
-from data_quality_engine.phase2.readiness.target import analyze_target_integrity
-from data_quality_engine.phase2.readiness.temporal import analyze_temporal_sufficiency
+from backend.engine.readiness.intervals import analyze_interval_regularity
+from backend.engine.readiness.leakage import analyze_leakage_and_cardinality
+from backend.engine.readiness.scorer import score_readiness
+from backend.engine.readiness.target import analyze_target_integrity
+from backend.engine.readiness.temporal import analyze_temporal_sufficiency
 
 
 def _sine_series(n: int, period: int = 30, amplitude: float = 10.0, base: float = 100.0) -> list[float]:
@@ -346,7 +346,7 @@ class TestReadinessScorer:
         assert result.verdict == "not_ready"
 
     def test_readiness_weights_sum_to_one(self):
-        from data_quality_engine.phase2.readiness import scorer as scorer_module
+        from backend.engine.readiness import scorer as scorer_module
 
         total = (
             scorer_module.WEIGHT_TEMPORAL
@@ -387,7 +387,7 @@ class TestReportIntegration:
     def _readiness_dict(self, df: pd.DataFrame, target: str, date: str) -> dict:
         from dataclasses import asdict
 
-        from data_quality_engine.phase2.readiness.scorer import score_readiness
+        from backend.engine.readiness.scorer import score_readiness
 
         rs = score_readiness(df, target, date)
         d = asdict(rs)
@@ -398,7 +398,7 @@ class TestReportIntegration:
         return d
 
     def test_report_includes_ml_readiness_section(self):
-        from data_quality_engine.engine.reporting.report_generator import build_report_data
+        from backend.engine.reports.report_generator import build_report_data
 
         dates = pd.date_range("2022-01-01", periods=800, freq="D")
         amount = _sine_series(800, period=30, amplitude=10.0, base=100.0)
@@ -433,7 +433,7 @@ class TestReportIntegration:
     def test_report_omits_ml_readiness_when_not_provided(self):
         """No readiness data passed (M3 wasn't run) -> section is None,
         never a block of placeholder/'N/A' data."""
-        from data_quality_engine.engine.reporting.report_generator import build_report_data
+        from backend.engine.reports.report_generator import build_report_data
 
         report = build_report_data(
             filepath="fake.xlsx",
@@ -453,7 +453,7 @@ class TestReportIntegration:
     def test_report_ml_readiness_reflects_blockers(self):
         """A readiness result with blockers renders NOT_READY, and the
         blocking reasons make it into the report block."""
-        from data_quality_engine.engine.reporting.report_generator import build_report_data
+        from backend.engine.reports.report_generator import build_report_data
 
         s = pd.Series([50.0] * 100)  # near-constant target -> blocker
         dates = pd.date_range("2022-01-01", periods=100, freq="D")

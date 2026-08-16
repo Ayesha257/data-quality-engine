@@ -103,7 +103,7 @@ python -m spacy download en_core_web_sm
 
 ```python
 # In your application startup (main.py or __main__)
-from data_quality_engine.phase2 import (
+from backend import (
     init_db_session,
     init_logging,
     init_rule_resolver,
@@ -119,7 +119,7 @@ init_rule_resolver(config_dir="config/")
 
 ```
 data-quality-engine/
-├── data_quality_engine/
+├── backend/
 │   ├── phase2/               ← Phase 2 code (M1 complete, M2–8 ready)
 │   ├── engine/               ← Phase 1 (do NOT modify)
 │   └── config/
@@ -212,7 +212,7 @@ M8: Hardening & Deployment       ⏳ LAST (all features)
 
 **Files:**
 ```
-data_quality_engine/phase2/database/
+backend/phase2/database/
 ├── __init__.py           ← Session factory
 └── models.py             ← ORM models (5 tables)
 ```
@@ -225,7 +225,7 @@ data_quality_engine/phase2/database/
 - ✅ Run querying by client_id
 - ✅ UUID generation for run IDs
 
-**File:** `data_quality_engine/phase2/logging_setup.py` (310 lines)
+**File:** `backend/phase2/logging_setup.py` (310 lines)
 
 **Test:** `tests/test_phase2_m1_setup.py::TestLoggingSetup`
 
@@ -238,7 +238,7 @@ data_quality_engine/phase2/database/
 
 **Files:**
 ```
-data_quality_engine/phase2/rules.py          ← RuleResolver
+backend/phase2/rules.py          ← RuleResolver
 config/base_rules.yaml                       ← Default thresholds
 config/clients/<id>/rules_v1.yaml            ← Client overrides (template)
 ```
@@ -251,7 +251,7 @@ config/clients/<id>/rules_v1.yaml            ← Client overrides (template)
 - ✅ Field validators (client_id, file_name, etc.)
 - ✅ Enums for RunStatus lifecycle
 
-**File:** `data_quality_engine/phase2/schemas/models.py` (340 lines)
+**File:** `backend/phase2/schemas/models.py` (340 lines)
 
 **Test:** `tests/test_phase2_m1_setup.py::TestPydanticSchemas`
 
@@ -263,7 +263,7 @@ pytest tests/test_phase2_m1_setup.py -v
 
 # Initialize M1 components
 python -c "
-from data_quality_engine.phase2 import init_db_session, init_logging, init_rule_resolver
+from backend import init_db_session, init_logging, init_rule_resolver
 init_db_session()
 log_setup = init_logging()
 resolver = init_rule_resolver()
@@ -317,7 +317,7 @@ Report Integration (Phase 1 tables + AI text)
 #### 2.1 Summary Compaction
 **Goal:** Convert Phase 1 results → compact JSON payload (token-bounded)
 
-**File:** `data_quality_engine/phase2/ai/compactor.py` (NEW)
+**File:** `backend/phase2/ai/compactor.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -360,7 +360,7 @@ def test_compact_findings_respects_token_budget():
 #### 2.2 LLM Integration
 **Goal:** Call GPT-4o mini with strict JSON schema output
 
-**File:** `data_quality_engine/phase2/ai/explainer.py` (NEW)
+**File:** `backend/phase2/ai/explainer.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -435,7 +435,7 @@ def test_explain_findings_masks_pii():
 #### 2.3 Output Validation
 **Goal:** Validate LLM output before use
 
-**File:** `data_quality_engine/phase2/ai/schemas.py` (NEW)
+**File:** `backend/phase2/ai/schemas.py` (NEW)
 
 **Pydantic Models:**
 ```python
@@ -474,7 +474,7 @@ def test_explanation_output_rejects_invalid():
 #### 2.4 Integration with Reporting
 **Goal:** Render AI explanations in the report
 
-**File:** `data_quality_engine/engine/reporting/report_generator.py` (MODIFY)
+**File:** `backend/engine/reporting/report_generator.py` (MODIFY)
 
 **Changes:**
 ```python
@@ -604,7 +604,7 @@ Report: Verdict + Recommended Actions
 ### Implementation Steps
 
 #### 3.1 Temporal Analysis
-**File:** `data_quality_engine/phase2/readiness/temporal.py` (NEW)
+**File:** `backend/phase2/readiness/temporal.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -651,7 +651,7 @@ def test_temporal_detects_frequency():
 ```
 
 #### 3.2 Interval Regularity
-**File:** `data_quality_engine/phase2/readiness/intervals.py` (NEW)
+**File:** `backend/phase2/readiness/intervals.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -698,7 +698,7 @@ def test_regularity_duplicate_timestamps():
 ```
 
 #### 3.3 Target Integrity
-**File:** `data_quality_engine/phase2/readiness/target.py` (NEW)
+**File:** `backend/phase2/readiness/target.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -755,7 +755,7 @@ def test_target_blocker_too_many_nulls():
 ```
 
 #### 3.4 Leakage & Cardinality
-**File:** `data_quality_engine/phase2/readiness/leakage.py` (NEW)
+**File:** `backend/phase2/readiness/leakage.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -796,7 +796,7 @@ def test_identifier_column_detected():
 ```
 
 #### 3.5 Readiness Scorer
-**File:** `data_quality_engine/phase2/readiness/scorer.py` (NEW)
+**File:** `backend/phase2/readiness/scorer.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -853,7 +853,7 @@ def test_readiness_blockers_not_averaged():
 ```
 
 #### 3.6 Report Integration
-**File:** `data_quality_engine/engine/reporting/report_generator.py` (MODIFY)
+**File:** `backend/engine/reporting/report_generator.py` (MODIFY)
 
 **New Section in Report:**
 ```
@@ -944,7 +944,7 @@ Results stored → Returned to client
 ### Implementation Steps
 
 #### 4.1 FastAPI Application
-**File:** `data_quality_engine/phase2/api/app.py` (NEW)
+**File:** `backend/phase2/api/app.py` (NEW)
 
 **Code Structure:**
 ```python
@@ -993,7 +993,7 @@ async def health_check():
 ```
 
 #### 4.2 File Upload Endpoint
-**File:** `data_quality_engine/phase2/api/routes.py` (NEW)
+**File:** `backend/phase2/api/routes.py` (NEW)
 
 **Endpoint:**
 ```python
@@ -1036,7 +1036,7 @@ async def upload_file(
     
     # Queue job
     job = queue.enqueue(
-        'data_quality_engine.phase2.api.workers.run_pipeline',
+        'backend.routes.workers.run_pipeline',
         run_id=run_id,
         client_id=client_id,
         file_path=str(file_path),
@@ -1211,7 +1211,7 @@ async def dry_run_rules(
 ```
 
 #### 4.7 Background Workers
-**File:** `data_quality_engine/phase2/api/workers.py` (NEW)
+**File:** `backend/phase2/api/workers.py` (NEW)
 
 **Worker:**
 ```python
@@ -1370,10 +1370,10 @@ def test_api_validation():
 **Startup:**
 ```bash
 # Start API
-uvicorn data_quality_engine.phase2.api.app:app --reload
+uvicorn backend.app:app --reload
 
 # Start workers (separate process)
-rq worker -c data_quality_engine.phase2.api.config
+rq worker -c backend.routes.config
 ```
 
 **Environment:**
@@ -1410,7 +1410,7 @@ Suggest actions to improve data quality, with estimated impact.
 
 ### Implementation
 
-**File:** `data_quality_engine/phase2/models/recommender.py` (NEW)
+**File:** `backend/phase2/models/recommender.py` (NEW)
 
 **Logic:**
 ```python
@@ -1475,7 +1475,7 @@ Review Queue: User confirmation needed
 
 **Files:**
 ```
-data_quality_engine/phase2/entity_resolution/
+backend/phase2/entity_resolution/
 ├── cascade.py          ← Multi-tier orchestration
 ├── lookup.py           ← Tier 1: Lookup table
 ├── fuzzy.py            ← Tier 2: RapidFuzz
@@ -1581,13 +1581,13 @@ FROM python:3.10-slim
 
 WORKDIR /app
 COPY --from=builder /root/.local /root/.local
-COPY data_quality_engine/ ./data_quality_engine/
+COPY backend/ ./backend/
 COPY config/ ./config/
 
 ENV PATH=/root/.local/bin:$PATH
 EXPOSE 8000
 
-CMD ["uvicorn", "data_quality_engine.phase2.api.app:app", "--host", "0.0.0.0"]
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0"]
 ```
 
 #### 8.2 Security Hardening
@@ -1681,10 +1681,10 @@ tests/
 **In orchestrator (Phase 2's main entry point):**
 ```python
 # Load Phase 1 modules
-from data_quality_engine.engine.ingestion import load_with_confirmed_header
-from data_quality_engine.engine.checks import run_all_checks
-from data_quality_engine.engine.scoring import score_results
-from data_quality_engine.engine.pii import mask_pii_dataframe
+from backend.engine.ingestion import load_with_confirmed_header
+from backend.engine.checks import run_all_checks
+from backend.engine.scoring import score_results
+from backend.engine.pii import mask_pii_dataframe
 
 # Phase 1 pipeline
 df = load_with_confirmed_header(file_path, sheet_name)

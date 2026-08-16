@@ -41,11 +41,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from data_quality_engine.phase2.api import jobs
-from data_quality_engine.phase2.database import get_session, init_db
-from data_quality_engine.phase2.database.models import RunManifest, RunRecord, RunStatus
+from backend.services import jobs
+from backend.database import get_session, init_db
+from backend.database.models import RunManifest, RunRecord, RunStatus
 
-SAMPLE = Path(__file__).resolve().parents[1] / "src" / "sample_data" / "sample_data.xlsx"
+from conftest import SAMPLE_XLSX, bearer_headers
+
+SAMPLE = SAMPLE_XLSX
 
 # Generous but bounded: real pipeline runs on this small sample file take
 # well under a second; this only guards against a genuine hang.
@@ -53,15 +55,10 @@ POLL_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 0.05
 
 
-# Auth (see data_quality_engine/phase2/api/auth.py): DQE_API_KEYS is
-# "key:client_id" pairs, comma-separated. Most tests below exercise
-# upload/status/results/report behavior, not auth itself, so the default
-# fixture is granted an admin key ("*") -- valid for any client_id -- to
-# keep those tests focused on one thing at a time. Auth-specific
-# behavior (missing key, wrong key, cross-client access) is covered by
-# TestAuthentication below using its own client-scoped keys.
-ADMIN_API_KEY = "test-admin-key"
-SCOPED_API_KEY_A = "test-scoped-key-a"  # bound to client_a only
+# Auth: JWT bearer tokens (see backend/services/auth/auth.py). Most tests use
+# an admin-scoped token (client_id="*") so they can exercise any client_id.
+# Auth-specific behavior is covered in TestAuthentication using scoped tokens.
+SCOPED_CLIENT_A = "client_a"
 
 
 @pytest.fixture()
@@ -72,30 +69,26 @@ def api_client(tmp_path, monkeypatch):
       - its own uploads/ and reports/ directories under tmp_path
       - its own single-worker executor, so background runs are easy to
         reason about and can't leak into the next test
-      - its own admin-scoped API key, so every request in the test is
+      - its own admin-scoped bearer token, so every request in the test is
         authenticated by default without every call site needing to pass
         a header explicitly
     """
-    from data_quality_engine.config.settings import SETTINGS
+    from backend.config.settings import SETTINGS
 
     db_path = tmp_path / "test_phase2_m4.db"
-    init_db(database_url=f"sqlite:///{db_path}")
+    db_url = f"sqlite:///{db_path.as_posix()}"
+    monkeypatch.setenv("DQE_DATABASE_URL", db_url)
+    init_db(database_url=db_url)
 
     monkeypatch.setitem(SETTINGS, "uploads_dir", tmp_path / "uploads")
     monkeypatch.setitem(SETTINGS, "reports_dir", tmp_path / "reports")
     monkeypatch.setitem(SETTINGS, "logs_dir", tmp_path / "logs")
 
-    monkeypatch.setenv(
-        "DQE_API_KEYS", f"{ADMIN_API_KEY}:*,{SCOPED_API_KEY_A}:client_a"
-    )
-
     jobs.configure_executor(max_workers=1)
 
-    # Import app.py directly (see phase2/api/__init__.py's docstring for
-    # why the package __init__ deliberately does not re-export `app`).
-    from data_quality_engine.phase2.api.app import app
+    from backend.app import app
 
-    with TestClient(app, headers={"X-API-Key": ADMIN_API_KEY}) as client:
+    with TestClient(app, headers=bearer_headers("*")) as client:
         yield client
 
 
@@ -164,7 +157,7 @@ class TestUploadValidation:
         assert "empty" in resp.json()["detail"].lower()
 
     def test_rejects_oversized_file(self, api_client, monkeypatch):
-        import data_quality_engine.phase2.api.routes as routes_mod
+        import backend.routes.routes as routes_mod
 
         # Shrink the limit instead of generating a real 200MB+ payload —
         # keeps this test fast regardless of the configured production limit.
@@ -376,71 +369,57 @@ class TestClientScoping:
 
 
 # ---------------------------------------------------------------------------
-# Authentication / authorization (data_quality_engine/phase2/api/auth.py)
+# Authentication / authorization (backend/phase2/api/auth.py)
 # ---------------------------------------------------------------------------
 
 class TestAuthentication:
     def test_health_check_requires_no_api_key(self, api_client):
-        # Liveness probes must work before any key is provisioned, and
+        # Liveness probes must work before any token is provisioned, and
         # this endpoint returns no client data -- see auth.py's docstring.
         resp = api_client.get("/health", headers={})
         assert resp.status_code == 200
 
-    def test_upload_without_api_key_is_401(self, api_client):
-        # api_client carries a default admin header (see fixture); an
-        # empty override string is how httpx lets a test un-set a
-        # client-level default header for one request rather than merge
-        # with it (passing headers={} would keep the default admin key).
-        resp = _upload_sample(api_client, headers={"X-API-Key": ""})
+    def test_upload_without_bearer_token_is_401(self, api_client):
+        resp = _upload_sample(api_client, headers={"Authorization": ""})
         assert resp.status_code == 401
 
-    def test_upload_with_invalid_api_key_is_401(self, api_client):
-        resp = _upload_sample(api_client, headers={"X-API-Key": "not-a-real-key"})
+    def test_upload_with_invalid_bearer_token_is_401(self, api_client):
+        resp = _upload_sample(api_client, headers={"Authorization": "Bearer not-a-real-token"})
         assert resp.status_code == 401
 
-    def test_upload_with_no_keys_configured_is_401(self, api_client, monkeypatch):
-        # Fail closed: an operator forgetting to set DQE_API_KEYS must
-        # deny everything, not silently allow unauthenticated access.
-        monkeypatch.delenv("DQE_API_KEYS", raising=False)
-        resp = _upload_sample(api_client, headers={"X-API-Key": ADMIN_API_KEY})
+    def test_upload_with_malformed_authorization_header_is_401(self, api_client):
+        resp = _upload_sample(api_client, headers={"Authorization": "NotBearer token"})
         assert resp.status_code == 401
 
-    def test_scoped_key_can_upload_for_its_own_client(self, api_client):
+    def test_scoped_token_can_upload_for_its_own_client(self, api_client):
         resp = _upload_sample(
-            api_client, client_id="client_a", headers={"X-API-Key": SCOPED_API_KEY_A}
+            api_client, client_id=SCOPED_CLIENT_A, headers=bearer_headers(SCOPED_CLIENT_A)
         )
         assert resp.status_code == 202
 
-    def test_scoped_key_cannot_upload_for_a_different_client(self, api_client):
+    def test_scoped_token_cannot_upload_for_a_different_client(self, api_client):
         resp = _upload_sample(
-            api_client, client_id="client_b", headers={"X-API-Key": SCOPED_API_KEY_A}
+            api_client, client_id="client_b", headers=bearer_headers(SCOPED_CLIENT_A)
         )
         assert resp.status_code == 403
 
-    def test_scoped_key_cannot_read_another_clients_run_status(self, api_client):
-        # Admin key creates a run for client_b...
+    def test_scoped_token_cannot_read_another_clients_run_status(self, api_client):
         run_id = _upload_sample(api_client, client_id="client_b").json()["run_id"]
-        # ...client_a's scoped key must not be able to read it.
         resp = api_client.get(
-            f"/v1/runs/{run_id}/status", headers={"X-API-Key": SCOPED_API_KEY_A}
+            f"/v1/runs/{run_id}/status", headers=bearer_headers(SCOPED_CLIENT_A)
         )
         assert resp.status_code == 403
 
-    def test_scoped_key_can_read_its_own_clients_run_status(self, api_client):
+    def test_scoped_token_can_read_its_own_clients_run_status(self, api_client):
         run_id = _upload_sample(
-            api_client, client_id="client_a", headers={"X-API-Key": SCOPED_API_KEY_A}
+            api_client, client_id=SCOPED_CLIENT_A, headers=bearer_headers(SCOPED_CLIENT_A)
         ).json()["run_id"]
         resp = api_client.get(
-            f"/v1/runs/{run_id}/status", headers={"X-API-Key": SCOPED_API_KEY_A}
+            f"/v1/runs/{run_id}/status", headers=bearer_headers(SCOPED_CLIENT_A)
         )
         assert resp.status_code == 200
 
-    def test_admin_key_can_read_any_clients_run_status(self, api_client):
+    def test_admin_token_can_read_any_clients_run_status(self, api_client):
         run_id = _upload_sample(api_client, client_id="client_b").json()["run_id"]
         resp = api_client.get(f"/v1/runs/{run_id}/status")  # default admin header
         assert resp.status_code == 200
-
-    def test_malformed_dqe_api_keys_env_var_is_500_not_a_crash(self, api_client, monkeypatch):
-        monkeypatch.setenv("DQE_API_KEYS", "this-has-no-colon")
-        resp = _upload_sample(api_client, headers={"X-API-Key": ADMIN_API_KEY})
-        assert resp.status_code == 500

@@ -14,25 +14,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pandas as pd
 
-from data_quality_engine.engine.ingestion import (
+from backend.engine.ingestion import (
     read_excel_file,
     detect_header_row,
     load_with_confirmed_header,
 )
-from data_quality_engine.engine.column_classifier import classify_columns
-from data_quality_engine.engine.checks.missing_values import check_missing_values
-from data_quality_engine.engine.checks.duplicates import check_duplicates
-from data_quality_engine.engine.checks.type_mismatch import check_type_consistency_frame
-from data_quality_engine.engine.checks.outliers import detect_outliers_frame
-from data_quality_engine.engine.checks.schema_quality import check_schema_quality
-from data_quality_engine.engine.checks.consistency import check_consistency_frame
-from data_quality_engine.engine.checks.validity import check_validity_frame
-from data_quality_engine.engine.checks.freshness import check_freshness_frame
-from data_quality_engine.engine.pii.detect_pii import detect_pii_in_series
-from data_quality_engine.engine.scoring import compute_data_quality_score
-from data_quality_engine.engine.reporting.report_generator import build_report_data
-from data_quality_engine.engine.reporting.pdf_report import generate_pdf_report
-from data_quality_engine.engine.reporting.html_report import generate_html_report
+from backend.engine.column_classifier import classify_columns
+from backend.engine.checks.missing_values import check_missing_values
+from backend.engine.checks.duplicates import check_duplicates
+from backend.engine.checks.type_mismatch import check_type_consistency_frame
+from backend.engine.checks.outliers import detect_outliers_frame
+from backend.engine.checks.schema_quality import check_schema_quality
+from backend.engine.checks.consistency import check_consistency_frame
+from backend.engine.checks.validity import check_validity_frame
+from backend.engine.checks.freshness import check_freshness_frame
+from backend.engine.pii.detect_pii import detect_pii_in_series
+from backend.engine.scoring import compute_data_quality_score
+from backend.engine.reports.report_generator import build_report_data
+from backend.engine.reports.pdf_report import generate_pdf_report
+from backend.engine.reports.html_report import generate_html_report
 
 
 def run_and_generate_reports(filepath: str, sheet_name: str | None, out_dir: str):

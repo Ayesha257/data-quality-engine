@@ -4,6 +4,7 @@ import { api } from "../api/client.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import ScoreDial from "../components/ScoreDial.jsx";
 import DimensionBars from "../components/DimensionBars.jsx";
+import EntityResolutionPanel from "../components/EntityResolutionPanel.jsx";
 
 const TERMINAL = new Set(["completed", "failed"]);
 
@@ -11,6 +12,7 @@ export default function RunDetailPage() {
   const { runId } = useParams();
   const [status, setStatus] = useState(null);
   const [results, setResults] = useState(null);
+  const [entityResolution, setEntityResolution] = useState(null);
   const [error, setError] = useState(null);
   const [reportUrl, setReportUrl] = useState(null);
   const [reportSheet, setReportSheet] = useState(null);
@@ -30,6 +32,14 @@ export default function RunDetailPage() {
         if (TERMINAL.has(s.status)) {
           const r = await api.getRunResults(runId);
           if (!cancelled) setResults(r);
+          if (s.status === "completed") {
+            try {
+              const er = await api.getEntityResolutionResults(runId);
+              if (!cancelled) setEntityResolution(er);
+            } catch {
+              if (!cancelled) setEntityResolution(null);
+            }
+          }
           clearInterval(pollRef.current);
         }
       } catch (e) {
@@ -154,6 +164,29 @@ export default function RunDetailPage() {
             </div>
           )}
 
+          <EntityResolutionPanel
+            sheets={
+              entityResolution?.sheets?.length
+                ? entityResolution.sheets
+                : results.sheets.filter(
+                    (s) =>
+                      s.entity_resolution_auto != null ||
+                      s.entity_resolution_review != null ||
+                      s.entity_resolution_no_match != null ||
+                      s.entity_resolution?.enabled
+                  ).map((s) => ({
+                    sheet_name: s.sheet_name,
+                    enabled: s.entity_resolution?.enabled,
+                    summary: s.entity_resolution?.summary,
+                    columns: s.entity_resolution?.columns,
+                    review_queue: s.entity_resolution?.review_queue,
+                    entity_resolution_auto: s.entity_resolution_auto,
+                    entity_resolution_review: s.entity_resolution_review,
+                    entity_resolution_no_match: s.entity_resolution_no_match,
+                  }))
+            }
+          />
+
           <div className="panel overflow-hidden">
             <div className="px-6 py-4 border-b border-ink-700">
               <h2 className="font-display font-semibold text-mist-100">Sheets</h2>
@@ -165,7 +198,7 @@ export default function RunDetailPage() {
                   <th className="px-6 py-3 font-medium">Rows × Cols</th>
                   <th className="px-6 py-3 font-medium">Quality</th>
                   <th className="px-6 py-3 font-medium">Privacy risk</th>
-                  <th className="px-6 py-3 font-medium">ML readiness</th>
+                  <th className="px-6 py-3 font-medium">Forecast readiness</th>
                   <th className="px-6 py-3 font-medium" />
                 </tr>
               </thead>
@@ -181,7 +214,7 @@ export default function RunDetailPage() {
                     </td>
                     <td className="px-6 py-3.5 text-mist-300">{sheet.privacy_risk_level ?? "—"}</td>
                     <td className="px-6 py-3.5 text-mist-300">
-                      {sheet.ml_readiness_verdict ?? "—"}
+                      {formatReadinessVerdict(sheet.ml_readiness_verdict)}
                       {sheet.ml_readiness_score != null && (
                         <span className="text-mist-400"> ({sheet.ml_readiness_score.toFixed(0)})</span>
                       )}
@@ -243,6 +276,14 @@ export default function RunDetailPage() {
       )}
     </div>
   );
+}
+
+function formatReadinessVerdict(verdict) {
+  if (!verdict) return "—";
+  return verdict
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function Stat({ label, value, mono }) {

@@ -79,7 +79,7 @@ export default function UploadPage() {
                 <label className="field-label">Sheet name</label>
                 <input
                   className="field-input"
-                  placeholder="all visible sheets"
+                  placeholder="e.g. Sheet1"
                   value={sheetName}
                   onChange={(e) => setSheetName(e.target.value)}
                 />
@@ -105,11 +105,13 @@ export default function UploadPage() {
                   />
                 </div>
                 <p className="field-hint sm:col-span-2 -mt-2">
-                  Supply both to enable ML-readiness scoring (leakage, temporal, target checks).
+                  Supply both to run a forecast-readiness check on that sheet. Use the exact
+                  column header from your file; target must be numeric and date must parse as
+                  dates.
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <label className="field-label">Gemini API key override</label>
+                <label className="field-label">AI explanation key (optional)</label>
                 <input
                   className="field-input font-mono"
                   type="password"
@@ -125,7 +127,7 @@ export default function UploadPage() {
                   onChange={(e) => setWriteReport(e.target.checked)}
                   className="w-4 h-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500 focus:ring-offset-0"
                 />
-                <span className="text-sm text-mist-200">Generate the AI-enhanced HTML report</span>
+                <span className="text-sm text-mist-200">Generate detailed report with plain-language explanations</span>
               </label>
             </div>
           )}

@@ -31,7 +31,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from data_quality_engine.engine.checks.referential_integrity import (
+from backend.engine.checks.referential_integrity import (
     check_referential_integrity,
     load_reference_values,
 )
@@ -179,7 +179,7 @@ def test_load_reference_values_customer_wires_to_domain_rules(monkeypatch):
     not that the loader's column-matching survives contact with the real
     file's actual headers.
     """
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_customer_codes.cache_clear()
     monkeypatch.setattr(
@@ -194,7 +194,7 @@ def test_load_reference_values_customer_wires_to_domain_rules(monkeypatch):
 
 
 def test_load_reference_values_supplier_and_product(monkeypatch):
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     monkeypatch.setattr(
         domain_rules, "load_supplier_codes", lambda dataset_dir=None: ("S1", "S2")
@@ -216,7 +216,7 @@ def test_domain_rules_load_customer_codes_against_mocked_master(monkeypatch, tmp
     logic (_find_column) has not been confirmed against the real workbook's
     header row/text -- do that before relying on this in production.
     """
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_customer_codes.cache_clear()
 
@@ -242,7 +242,7 @@ def test_domain_rules_load_customer_codes_against_mocked_master(monkeypatch, tmp
 
 
 def test_domain_rules_load_customer_codes_missing_file_returns_empty(tmp_path):
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_customer_codes.cache_clear()
     codes = domain_rules.load_customer_codes(dataset_dir=str(tmp_path))
@@ -253,7 +253,7 @@ def test_domain_rules_loader_swallows_read_errors(monkeypatch, tmp_path):
     """A corrupt/unreadable master file must not crash the loader -- degrade
     to an empty reference set (which check_referential_integrity then
     reports as status="error", not a false pass/fail)."""
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_supplier_codes.cache_clear()
 
@@ -272,7 +272,7 @@ def test_end_to_end_check_using_mocked_loader(monkeypatch):
     """Full flow: load_reference_values("customer") feeds directly into
     check_referential_integrity, matching the real usage this module
     documents (Booked Orders / Invoice List Customer No. vs Customer List)."""
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     monkeypatch.setattr(
         domain_rules,
@@ -309,8 +309,8 @@ def test_check_referential_name_vs_code_reference_type_mismatch():
 
 def test_run_pipeline_skips_empty_sheet_gracefully(tmp_path, capsys):
     """Empty sheet must not crash the multi-sheet pipeline."""
-    import main
-    from data_quality_engine.engine.checkpoint import UserPrompt
+    import backend.main as main
+    from backend.engine.checkpoint import UserPrompt
 
     class Auto(UserPrompt):
         def confirm(self, message, details):
@@ -346,7 +346,7 @@ def test_name_shaped_column_not_compared_to_code_only_reference(monkeypatch):
     against a customer-*code* reference set (that produced a false 100% fail).
     With no name reference available, the column is skipped -- not flagged.
     """
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_customer_codes.cache_clear()
     domain_rules.load_customer_names.cache_clear()
@@ -378,7 +378,7 @@ def test_name_shaped_column_not_compared_to_code_only_reference(monkeypatch):
 
 def test_name_shaped_column_uses_company_name_reference_when_available(monkeypatch):
     """Option (b): name-shaped Main Customer matches against Company Name list."""
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_customer_codes.cache_clear()
     domain_rules.load_customer_names.cache_clear()
@@ -425,7 +425,7 @@ def test_name_shaped_column_uses_company_name_reference_when_available(monkeypat
 
 def test_code_shaped_main_customer_still_uses_code_reference(monkeypatch):
     """Same header can hold codes (Stock Report) -- still match codes."""
-    from data_quality_engine.config import domain_rules
+    from backend.config import domain_rules
 
     domain_rules.load_customer_codes.cache_clear()
     domain_rules.load_customer_names.cache_clear()

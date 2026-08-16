@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from data_quality_engine.engine.standardization.fuzzy_match import (
+from backend.engine.standardization.fuzzy_match import (
     apply_standardization,
     check_fuzzy_standardization,
     check_fuzzy_standardization_frame,
@@ -123,7 +123,7 @@ def test_standardize_frame_only_eligible_columns():
 
 
 def test_case_insensitive_setting(monkeypatch):
-    from data_quality_engine.config.settings import SETTINGS
+    from backend.config.settings import SETTINGS
 
     s = pd.Series(["Paid", "PAID", "Paid"], name="status")
     monkeypatch.setitem(SETTINGS, "fuzzy_case_insensitive", True)
@@ -138,7 +138,7 @@ def test_case_insensitive_setting(monkeypatch):
 
 
 def test_max_unique_cap(monkeypatch):
-    from data_quality_engine.config.settings import SETTINGS
+    from backend.config.settings import SETTINGS
 
     monkeypatch.setitem(SETTINGS, "fuzzy_max_unique", 3)
     # 5 distinct values; only top-3 by frequency are clustered

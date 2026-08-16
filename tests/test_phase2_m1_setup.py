@@ -22,8 +22,8 @@ import json
 import pytest
 import yaml
 
-from data_quality_engine.phase2.database import get_session, init_db
-from data_quality_engine.phase2.database.models import (
+from backend.database import get_session, init_db
+from backend.database.models import (
     CanonicalMapping,
     Disposition,
     DispositionType,
@@ -32,7 +32,7 @@ from data_quality_engine.phase2.database.models import (
     RunRecord,
     RunStatus,
 )
-from data_quality_engine.phase2.logging_setup import (
+from backend.logging import (
     get_run_logger,
     init_logging,
     log_event,
@@ -41,8 +41,8 @@ from data_quality_engine.phase2.logging_setup import (
     read_run_manifest,
     write_run_manifest,
 )
-from data_quality_engine.phase2.rules import RuleResolutionError, RuleResolver
-from data_quality_engine.phase2.schemas.models import (
+from backend.services.rules import RuleResolutionError, RuleResolver
+from backend.schemas.models import (
     CanonicalMappingCreate,
     DispositionCreate,
     FindingSummary,
@@ -334,7 +334,7 @@ class TestPydanticSchemas:
             )
 
     def test_run_record_schema_reads_from_orm_object(self):
-        from data_quality_engine.phase2.database.models import RunRecord as ORMRunRecord
+        from backend.database.models import RunRecord as ORMRunRecord
 
         orm_row = ORMRunRecord(
             id="r1",

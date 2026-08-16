@@ -39,8 +39,7 @@ export default function RunsPage() {
           {error}
           {error.toLowerCase().includes("not found") && (
             <p className="text-mist-400 mt-1">
-              This backend build may not yet have the list-runs endpoint — see{" "}
-              <code className="text-mist-300">backend_patches/</code> in this delivery.
+              Scan history could not be loaded. Try again in a moment, or start a new scan.
             </p>
           )}
         </div>

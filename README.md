@@ -90,7 +90,7 @@ Supported formats: `.xlsx`/`.xlsm`, `.xls`, `.csv`.
 ## Project layout
 
 ```
-data_quality_engine/
+backend/
   config/                # Phase 1 thresholds, rubric weights, domain rules
   engine/                 # ingestion, checks, PII, standardization, scoring
   phase2/

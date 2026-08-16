@@ -27,11 +27,12 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from data_quality_engine.phase2.api import jobs
-from data_quality_engine.phase2.database import init_db
+from backend.services import jobs
+from backend.database import init_db
 
-ADMIN_API_KEY = "test-admin-key"
-SCOPED_API_KEY_A = "test-scoped-key-a"  # bound to client_a only
+from conftest import bearer_headers
+
+SCOPED_CLIENT_A = "client_a"
 
 BASE_RULES_YAML = textwrap.dedent(
     """
@@ -58,27 +59,27 @@ def rules_client(tmp_path, monkeypatch):
     threshold/business_rule counts are deterministic, plus the same
     admin/scoped API key setup used in test_phase2_m4_api.py.
     """
-    from data_quality_engine.config.settings import SETTINGS
+    from backend.config.settings import SETTINGS
 
     config_dir = tmp_path / "config"
     (config_dir / "clients").mkdir(parents=True)
     (config_dir / "base_rules.yaml").write_text(BASE_RULES_YAML, encoding="utf-8")
 
     db_path = tmp_path / "test_phase2_m4_rules.db"
-    init_db(database_url=f"sqlite:///{db_path}")
+    db_url = f"sqlite:///{db_path.as_posix()}"
+    monkeypatch.setenv("DQE_DATABASE_URL", db_url)
+    init_db(database_url=db_url)
 
     monkeypatch.setitem(SETTINGS, "uploads_dir", tmp_path / "uploads")
     monkeypatch.setitem(SETTINGS, "reports_dir", tmp_path / "reports")
     monkeypatch.setitem(SETTINGS, "logs_dir", tmp_path / "logs")
     monkeypatch.setitem(SETTINGS, "rules_config_dir", config_dir)
 
-    monkeypatch.setenv("DQE_API_KEYS", f"{ADMIN_API_KEY}:*,{SCOPED_API_KEY_A}:client_a")
-
     jobs.configure_executor(max_workers=1)
 
-    from data_quality_engine.phase2.api.app import app
+    from backend.app import app
 
-    with TestClient(app, headers={"X-API-Key": ADMIN_API_KEY}) as client:
+    with TestClient(app, headers=bearer_headers("*")) as client:
         yield client
 
 
@@ -99,19 +100,19 @@ class TestGetActiveRules:
         resp = rules_client.get("/v1/clients/not a valid id!/rules")
         assert resp.status_code == 422
 
-    def test_requires_api_key(self, rules_client):
-        resp = rules_client.get("/v1/clients/acme_corp/rules", headers={"X-API-Key": ""})
+    def test_requires_bearer_token(self, rules_client):
+        resp = rules_client.get("/v1/clients/acme_corp/rules", headers={"Authorization": ""})
         assert resp.status_code == 401
 
-    def test_scoped_key_cannot_read_another_clients_rules(self, rules_client):
+    def test_scoped_token_cannot_read_another_clients_rules(self, rules_client):
         resp = rules_client.get(
-            "/v1/clients/client_b/rules", headers={"X-API-Key": SCOPED_API_KEY_A}
+            "/v1/clients/client_b/rules", headers=bearer_headers(SCOPED_CLIENT_A)
         )
         assert resp.status_code == 403
 
-    def test_scoped_key_can_read_its_own_clients_rules(self, rules_client):
+    def test_scoped_token_can_read_its_own_clients_rules(self, rules_client):
         resp = rules_client.get(
-            "/v1/clients/client_a/rules", headers={"X-API-Key": SCOPED_API_KEY_A}
+            "/v1/clients/client_a/rules", headers=bearer_headers(SCOPED_CLIENT_A)
         )
         assert resp.status_code == 200
 
@@ -178,11 +179,11 @@ class TestDryRunRules:
         client_dir = tmp_path / "config" / "clients" / "acme_corp"
         assert not client_dir.exists()
 
-    def test_requires_api_key(self, rules_client):
+    def test_requires_bearer_token_for_dry_run(self, rules_client):
         resp = rules_client.post(
             "/v1/clients/acme_corp/rules/dry-run",
             json={"rules_yaml": "thresholds: {}"},
-            headers={"X-API-Key": ""},
+            headers={"Authorization": ""},
         )
         assert resp.status_code == 401
 
@@ -235,26 +236,26 @@ class TestSaveClientRules:
         client_dir = tmp_path / "config" / "clients" / "acme_corp"
         assert not client_dir.exists()
 
-    def test_scoped_key_cannot_save_rules_for_a_different_client(self, rules_client):
+    def test_scoped_token_cannot_save_rules_for_a_different_client(self, rules_client):
         resp = rules_client.post(
             "/v1/clients/client_b/rules",
             json={"rules_yaml": "thresholds: {}"},
-            headers={"X-API-Key": SCOPED_API_KEY_A},
+            headers=bearer_headers(SCOPED_CLIENT_A),
         )
         assert resp.status_code == 403
 
-    def test_scoped_key_can_save_rules_for_its_own_client(self, rules_client):
+    def test_scoped_token_can_save_rules_for_its_own_client(self, rules_client):
         resp = rules_client.post(
             "/v1/clients/client_a/rules",
             json={"rules_yaml": "thresholds: {}"},
-            headers={"X-API-Key": SCOPED_API_KEY_A},
+            headers=bearer_headers(SCOPED_CLIENT_A),
         )
         assert resp.status_code == 201
 
-    def test_requires_api_key(self, rules_client):
+    def test_requires_bearer_token_to_save(self, rules_client):
         resp = rules_client.post(
             "/v1/clients/acme_corp/rules",
             json={"rules_yaml": "thresholds: {}"},
-            headers={"X-API-Key": ""},
+            headers={"Authorization": ""},
         )
         assert resp.status_code == 401

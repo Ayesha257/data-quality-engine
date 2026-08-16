@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from data_quality_engine.engine.ingestion import (
+from backend.engine.ingestion import (
     detect_header_row,
     header_preview,
     load_with_confirmed_header,
@@ -164,7 +164,7 @@ def test_blank_row_never_chosen_as_header():
 
 
 def test_calamine_helper_reports_install_status():
-    from data_quality_engine.engine.ingestion import _calamine_installed
+    from backend.engine.ingestion import _calamine_installed
 
     # Should be True in CI/dev after `pip install python-calamine`
     assert isinstance(_calamine_installed(), bool)
@@ -197,7 +197,7 @@ def test_csv_extension_with_ole_bytes_routes_to_xlrd_path(
     tmp_path: Path, capsys, monkeypatch
 ):
     """Mislabeled .csv with OLE magic must call the xlrd Excel path, not CSV."""
-    from data_quality_engine.engine import ingestion as ing
+    from backend.engine import ingestion as ing
 
     fake_csv = tmp_path / "legacy_export.csv"
     fake_csv.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64)
@@ -230,9 +230,9 @@ def test_sniff_csv_encoding_none_high_confidence_uses_fallback(
     tmp_path: Path, monkeypatch
 ):
     """encoding=None + confidence=1.0 must not be blindly trusted as utf-8."""
-    from data_quality_engine.engine.checks import encoding as enc_mod
-    from data_quality_engine.engine.ingestion import _sniff_csv_encoding
-    from data_quality_engine.engine.models import CheckResult
+    from backend.engine.checks import encoding as enc_mod
+    from backend.engine.ingestion import _sniff_csv_encoding
+    from backend.engine.models import CheckResult
 
     path = tmp_path / "cp1252.csv"
     # 0xE9 = 'é' in cp1252; invalid as UTF-8.
@@ -261,8 +261,8 @@ def test_sniff_csv_encoding_none_high_confidence_uses_fallback(
 
 def test_sniff_csv_encoding_utf8_unaffected(tmp_path: Path, monkeypatch):
     """Valid UTF-8 CSV: keep chardet encoding; do not run extra fallbacks."""
-    from data_quality_engine.engine.checks import encoding as enc_mod
-    from data_quality_engine.engine.ingestion import _sniff_csv_encoding
+    from backend.engine.checks import encoding as enc_mod
+    from backend.engine.ingestion import _sniff_csv_encoding
 
     path = tmp_path / "ok.csv"
     path.write_bytes("Name,Age\nAli,30\n".encode("utf-8"))

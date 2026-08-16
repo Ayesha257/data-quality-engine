@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from data_quality_engine.config.rule_engine import BusinessRuleEngine, load_business_rules
+from backend.config.rule_engine import BusinessRuleEngine, load_business_rules
 
 
 def test_business_rule_engine_required():

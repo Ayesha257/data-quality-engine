@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.duplicates import (
+from backend.engine.checks.duplicates import (
     check_duplicates_frame,
     infer_uniqueness_keys,
     uniqueness_evidence,

@@ -13,6 +13,7 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(STORAGE_KEYS.token) || "");
   const [clientId, setClientId] = useState(() => localStorage.getItem(STORAGE_KEYS.clientId) || "");
   const [email, setEmail] = useState(() => localStorage.getItem(STORAGE_KEYS.email) || "");
+  const [fullName, setFullName] = useState(() => localStorage.getItem(STORAGE_KEYS.fullName) || "");
   const [status, setStatus] = useState("idle"); // idle | checking | ready
   const [error, setError] = useState(null);
 
@@ -22,18 +23,29 @@ export function AuthProvider({ children }) {
     localStorage.setItem(STORAGE_KEYS.token, data.access_token);
     localStorage.setItem(STORAGE_KEYS.clientId, data.client_id);
     localStorage.setItem(STORAGE_KEYS.email, data.email);
+    const name = data.full_name || "";
+    localStorage.setItem(STORAGE_KEYS.fullName, name);
     setToken(data.access_token);
     setClientId(data.client_id);
     setEmail(data.email);
+    setFullName(name);
   };
+
+  const updateDisplayName = useCallback((name) => {
+    const value = name || "";
+    localStorage.setItem(STORAGE_KEYS.fullName, value);
+    setFullName(value);
+  }, []);
 
   const clear = () => {
     localStorage.removeItem(STORAGE_KEYS.token);
     localStorage.removeItem(STORAGE_KEYS.clientId);
     localStorage.removeItem(STORAGE_KEYS.email);
+    localStorage.removeItem(STORAGE_KEYS.fullName);
     setToken("");
     setClientId("");
     setEmail("");
+    setFullName("");
   };
 
   const login = useCallback(async ({ email, password }) => {
@@ -79,7 +91,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ token, clientId, email, isAuthenticated, status, error, login, register, logout }}
+      value={{ token, clientId, email, fullName, isAuthenticated, status, error, login, register, logout, updateDisplayName }}
     >
       {children}
     </AuthContext.Provider>

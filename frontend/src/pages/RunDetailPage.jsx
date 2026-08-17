@@ -225,7 +225,7 @@ export default function RunDetailPage() {
                           onClick={() => openReport(sheet.sheet_name)}
                           className="text-teal-400 hover:text-teal-300 font-medium text-sm"
                         >
-                          View report →
+                          Quality report →
                         </button>
                       ) : sheet.error ? (
                         <span className="text-rose-500 text-xs">{sheet.error}</span>
@@ -243,7 +243,7 @@ export default function RunDetailPage() {
             <div className="panel overflow-hidden">
               <div className="px-6 py-4 border-b border-ink-700 flex items-center justify-between">
                 <h2 className="font-display font-semibold text-mist-100">
-                  Report{reportSheet ? ` — ${reportSheet}` : ""}
+                  Quality report{reportSheet ? ` — ${reportSheet}` : ""}
                 </h2>
                 {reportUrl && (
                   <div className="flex items-center gap-2">
@@ -268,7 +268,11 @@ export default function RunDetailPage() {
               {reportLoading ? (
                 <div className="p-10 text-center text-mist-400 text-sm">Loading report…</div>
               ) : (
-                <iframe title="Quality report" src={reportUrl} className="w-full h-[720px] bg-white" />
+                <iframe
+                  title="Quality report"
+                  src={reportUrl}
+                  className="w-full h-[720px] bg-white"
+                />
               )}
             </div>
           )}

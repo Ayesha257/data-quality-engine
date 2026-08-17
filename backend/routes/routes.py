@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import text as sql_text
 
@@ -101,6 +101,13 @@ async def upload_file(
         None, description="Optional, paired with target_column: enables M3 ML readiness"
     ),
     write_report: bool = Query(True, description="Generate the AI-enhanced HTML report"),
+    include_hipaa: bool = Query(
+        False,
+        description="Include the HIPAA PHI compliance section in the main report "
+        "(default: False). The standalone compliance report "
+        "(GET /v1/runs/{run_id}/compliance-report) is unaffected by this flag "
+        "-- it always reflects the HIPAA analysis for this run.",
+    ),
     gemini_api_key: str | None = Query(
         None, description="Optional: overrides the GEMINI_API_KEY env var for this run's report"
     ),
@@ -162,6 +169,7 @@ async def upload_file(
         date_column=date_column,
         write_report=write_report,
         gemini_api_key=gemini_api_key,
+        include_hipaa=include_hipaa,
     )
 
     return FileUploadResponse(
@@ -317,6 +325,55 @@ def get_run_status(
     return RunStatusResponse.model_validate(run)
 
 
+@router.delete("/v1/runs/{run_id}", status_code=204)
+def delete_run(
+    run_id: str, authenticated_client_id: str = Depends(resolve_api_key)
+) -> Response:
+    """
+    Delete a run:
+      - Authenticate and ensure client access (404 if missing, 403 if wrong client).
+      - Collect file paths from RunManifest (uploaded file, report_path, compliance_report_path, pdf_report_path).
+      - Remove RunRecord and cascade to child rows (RunManifest, Disposition, Rating).
+      - Delete uploaded file and all report HTML/PDF files from disk safely (missing files never 500).
+      - Return 204 No Content.
+    """
+    import shutil
+
+    run = _get_run_or_404(run_id)
+    require_client_access(authenticated_client_id, run.client_id)
+
+    files_to_delete: list[Path] = []
+    upload_dir = jobs.uploads_dir() / run_id
+    if upload_dir.exists():
+        files_to_delete.append(upload_dir)
+
+    with get_session() as session:
+        manifest = (
+            session.query(RunManifest).filter(RunManifest.run_id == run_id).one_or_none()
+        )
+        if manifest is not None:
+            for s in (manifest.extra or {}).get("sheets", []):
+                for key in ("report_path", "compliance_report_path", "pdf_report_path"):
+                    p = s.get(key)
+                    if p:
+                        files_to_delete.append(Path(p))
+
+        run_in_db = session.get(RunRecord, run_id)
+        if run_in_db is not None:
+            session.delete(run_in_db)
+
+    for path in files_to_delete:
+        try:
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            elif path.exists():
+                path.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001 - missing files must never cause a 500
+            pass
+
+    return Response(status_code=204)
+
+
 @router.get("/v1/runs/{run_id}/results", response_model=RunResultsResponse)
 def get_run_results(
     run_id: str, authenticated_client_id: str = Depends(resolve_api_key)
@@ -445,6 +502,54 @@ def get_run_report_pdf(
     return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
+@router.get("/v1/runs/{run_id}/compliance-report")
+def get_run_compliance_report(
+    run_id: str,
+    sheet_name: str | None = None,
+    authenticated_client_id: str = Depends(resolve_api_key),
+) -> FileResponse:
+    """
+    Download the standalone Compliance Report for a completed run.
+
+    This is a separate report from GET /v1/runs/{run_id}/report -- it
+    contains compliance findings only (currently HIPAA; structured to grow
+    additional regulation sections later, see
+    engine/compliance/report.py), regardless of whether the main report's
+    own include_hipaa flag was used to include or omit its HIPAA section
+    at upload time. Same lookup/auth/scoping pattern as get_run_report,
+    just keyed on `compliance_report_path`.
+    """
+    run = _get_run_or_404(run_id)
+    require_client_access(authenticated_client_id, run.client_id)
+    if run.status != RunStatus.COMPLETED:
+        raise HTTPException(409, f"Run is '{run.status.value}', not completed yet.")
+
+    with get_session() as session:
+        manifest = (
+            session.query(RunManifest).filter(RunManifest.run_id == run_id).one_or_none()
+        )
+        sheet_entries = (manifest.extra or {}).get("sheets", []) if manifest else []
+
+    candidates = [
+        s for s in sheet_entries
+        if s.get("compliance_report_path")
+        and (sheet_name is None or s.get("sheet_name") == sheet_name)
+    ]
+    if not candidates:
+        raise HTTPException(
+            404,
+            "No compliance report available for this run"
+            + (f" / sheet '{sheet_name}'" if sheet_name else "")
+            + ". Was write_report=True passed at upload time?",
+        )
+
+    report_path = Path(candidates[0]["compliance_report_path"])
+    if not report_path.exists():
+        raise HTTPException(410, f"Compliance report file no longer exists on disk: {report_path}")
+
+    return FileResponse(report_path, media_type="text/html", filename=report_path.name)
+
+
 # ---------------------------------------------------------------------------
 # Client rules management (PHASE2_PLAN.md §4.6)
 # ---------------------------------------------------------------------------
@@ -569,5 +674,14 @@ def list_client_runs(
             .limit(limit)
             .all()
         )
-        summaries = [RunSummary.model_validate(r) for r in runs]
+        summaries = []
+        for r in runs:
+            manifest = session.query(RunManifest).filter(RunManifest.run_id == r.id).one_or_none()
+            has_comp = False
+            if manifest and manifest.extra:
+                sheets = manifest.extra.get("sheets", [])
+                has_comp = any(bool(s.get("compliance_report_path")) for s in sheets if isinstance(s, dict))
+            s_obj = RunSummary.model_validate(r)
+            s_obj.has_compliance_report = has_comp
+            summaries.append(s_obj)
     return RunListResponse(client_id=client_id, runs=summaries)

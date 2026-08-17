@@ -12,7 +12,6 @@ export default function UploadPage() {
   const [sheetName, setSheetName] = useState("");
   const [targetColumn, setTargetColumn] = useState("");
   const [dateColumn, setDateColumn] = useState("");
-  const [writeReport, setWriteReport] = useState(true);
   const [geminiKey, setGeminiKey] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -39,7 +38,7 @@ export default function UploadPage() {
         sheetName: sheetName || undefined,
         targetColumn: targetColumn || undefined,
         dateColumn: dateColumn || undefined,
-        writeReport,
+        writeReport: true,
         geminiApiKey: geminiKey || undefined,
       });
       navigate(`/runs/${res.run_id}`);
@@ -120,15 +119,6 @@ export default function UploadPage() {
                   onChange={(e) => setGeminiKey(e.target.value)}
                 />
               </div>
-              <label className="sm:col-span-2 flex items-center gap-2.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={writeReport}
-                  onChange={(e) => setWriteReport(e.target.checked)}
-                  className="w-4 h-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500 focus:ring-offset-0"
-                />
-                <span className="text-sm text-mist-200">Generate detailed report with plain-language explanations</span>
-              </label>
             </div>
           )}
         </div>

@@ -232,6 +232,68 @@ class TestSuccessfulRun:
         resp = api_client.get(f"/v1/runs/{run_id}/report")
         assert resp.status_code == 404
 
+    def test_main_report_omits_hipaa_when_include_hipaa_false(self, api_client):
+        run_id = _upload_sample(
+            api_client, write_report=True, include_hipaa=False
+        ).json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        resp = api_client.get(f"/v1/runs/{run_id}/report")
+        assert resp.status_code == 200
+        assert b"HIPAA PHI Compliance Scan" not in resp.content
+
+    def test_main_report_omits_hipaa_by_default(self, api_client):
+        run_id = _upload_sample(api_client, write_report=True).json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        resp = api_client.get(f"/v1/runs/{run_id}/report")
+        assert resp.status_code == 200
+        assert b"HIPAA PHI Compliance Scan" not in resp.content
+
+    def test_main_report_includes_hipaa_when_explicitly_requested(self, api_client):
+        run_id = _upload_sample(
+            api_client, write_report=True, include_hipaa=True
+        ).json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        resp = api_client.get(f"/v1/runs/{run_id}/report")
+        assert resp.status_code == 200
+        assert b"HIPAA PHI Compliance Scan" in resp.content
+
+    def test_compliance_report_is_generated_and_downloadable(self, api_client):
+        """(b) The new standalone compliance report endpoint returns
+        correct HIPAA content for a completed run -- never the main
+        Phase 2 report endpoint's content."""
+        run_id = _upload_sample(api_client, write_report=True).json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        resp = api_client.get(f"/v1/runs/{run_id}/compliance-report")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        assert b"<html" in resp.content.lower()
+        assert b"Compliance Report" in resp.content
+        assert b"HIPAA PHI Compliance Scan" in resp.content
+
+    def test_compliance_report_available_even_when_main_report_omits_hipaa(self, api_client):
+        """The standalone compliance report is independent of
+        include_hipaa -- it always reflects the HIPAA analysis for this
+        run regardless of what the main report chose to show."""
+        run_id = _upload_sample(
+            api_client, write_report=True, include_hipaa=False
+        ).json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        resp = api_client.get(f"/v1/runs/{run_id}/compliance-report")
+        assert resp.status_code == 200
+        assert b"HIPAA PHI Compliance Scan" in resp.content
+
+    def test_compliance_report_404_when_write_report_false(self, api_client):
+        run_id = _upload_sample(api_client, write_report=False).json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        resp = api_client.get(f"/v1/runs/{run_id}/compliance-report")
+        assert resp.status_code == 404
+
     def test_results_persisted_in_database_directly(self, api_client):
         """Belt-and-suspenders: check the DB row itself, not just the HTTP
         response, so a bug that only manifests in the response-shaping
@@ -331,6 +393,10 @@ class TestNotFound:
         resp = api_client.get("/v1/runs/does-not-exist/report")
         assert resp.status_code == 404
 
+    def test_compliance_report_for_unknown_run_id_is_404(self, api_client):
+        resp = api_client.get("/v1/runs/does-not-exist/compliance-report")
+        assert resp.status_code == 404
+
     def test_report_for_run_still_pending_is_409(self, api_client, monkeypatch):
         # Freeze execution before it starts by pointing the executor at a
         # pool with zero live workers won't work cleanly with ThreadPoolExecutor,
@@ -423,3 +489,86 @@ class TestAuthentication:
         run_id = _upload_sample(api_client, client_id="client_b").json()["run_id"]
         resp = api_client.get(f"/v1/runs/{run_id}/status")  # default admin header
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Delete Run (Fix 1)
+# ---------------------------------------------------------------------------
+
+class TestDeleteRun:
+    def test_delete_removes_run_and_subsequent_status_is_404(self, api_client):
+        run_id = _upload_sample(api_client, client_id="acme_corp").json()["run_id"]
+        _wait_for_terminal_status(api_client, run_id)
+
+        # Ensure run exists in status before delete
+        resp = api_client.get(f"/v1/runs/{run_id}/status")
+        assert resp.status_code == 200
+
+        # Delete the run
+        del_resp = api_client.delete(f"/v1/runs/{run_id}")
+        assert del_resp.status_code == 204
+
+        # Subsequent status check must be 404
+        post_del_resp = api_client.get(f"/v1/runs/{run_id}/status")
+        assert post_del_resp.status_code == 404
+
+        # Subsequent results check must be 404
+        results_resp = api_client.get(f"/v1/runs/{run_id}/results")
+        assert results_resp.status_code == 404
+
+        # Direct database query verifies row and child rows removed
+        with get_session() as session:
+            assert session.get(RunRecord, run_id) is None
+            assert session.query(RunManifest).filter(RunManifest.run_id == run_id).one_or_none() is None
+
+        # Upload files directory on disk must be removed
+        upload_dir = jobs.uploads_dir() / run_id
+        assert not upload_dir.exists()
+
+    def test_cross_client_delete_is_403(self, api_client):
+        run_id = _upload_sample(
+            api_client, client_id="client_b", headers=bearer_headers("client_b")
+        ).json()["run_id"]
+
+        # Attempt to delete using client_a's token
+        del_resp = api_client.delete(
+            f"/v1/runs/{run_id}", headers=bearer_headers(SCOPED_CLIENT_A)
+        )
+        assert del_resp.status_code == 403
+
+        # Run still exists
+        status_resp = api_client.get(
+            f"/v1/runs/{run_id}/status", headers=bearer_headers("client_b")
+        )
+        assert status_resp.status_code == 200
+
+    def test_delete_unknown_run_id_is_404(self, api_client):
+        resp = api_client.delete("/v1/runs/00000000000000000000000000000000")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Pipeline Exception Handling (Fix 3)
+# ---------------------------------------------------------------------------
+
+class TestPipelineExceptionHandling:
+    def test_simulated_pipeline_exception_marks_run_failed_with_error_message(
+        self, api_client, monkeypatch
+    ):
+        import backend.main as main_mod
+
+        def _exploding_run_pipeline(*args, **kwargs):
+            raise RuntimeError("Simulated unhandled pipeline crash during analysis")
+
+        monkeypatch.setattr(main_mod, "run_pipeline", _exploding_run_pipeline)
+
+        resp = _upload_sample(api_client)
+        assert resp.status_code == 202
+        run_id = resp.json()["run_id"]
+
+        status = _wait_for_terminal_status(api_client, run_id)
+        assert status["status"] == "failed"
+        assert status["error_message"] is not None
+        assert "RuntimeError" in status["error_message"]
+        assert "Simulated unhandled pipeline crash during analysis" in status["error_message"]
+

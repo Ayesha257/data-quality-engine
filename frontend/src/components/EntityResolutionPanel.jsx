@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 /** Value-matching summary and per-value detail table. */
 
 export function flattenResolutions(sheet) {
@@ -49,7 +51,23 @@ function DecisionBadge({ decision }) {
   );
 }
 
-export default function EntityResolutionPanel({ sheets = [] }) {
+export default function EntityResolutionPanel({ sheets = [], defaultOpen = false }) {
+  const [openSheets, setOpenSheets] = useState(() => {
+    if (!defaultOpen) return {};
+    const initial = {};
+    for (const s of sheets) {
+      if (s?.sheet_name) initial[s.sheet_name] = true;
+    }
+    return initial;
+  });
+
+  const toggleSheet = (sheetName) => {
+    setOpenSheets((prev) => ({
+      ...prev,
+      [sheetName]: !prev[sheetName],
+    }));
+  };
+
   const visible = sheets.filter(
     (s) =>
       s.enabled ||
@@ -103,45 +121,78 @@ export default function EntityResolutionPanel({ sheets = [] }) {
       {visible.map((sheet) => {
         const rows = flattenResolutions(sheet);
         if (!rows.length) return null;
+        const isOpen = !!openSheets[sheet.sheet_name];
+
         return (
-          <div key={`${sheet.sheet_name}-detail`} className="overflow-hidden rounded-lg border border-ink-700">
-            <div className="px-4 py-3 border-b border-ink-700 bg-ink-900/60">
-              <h3 className="text-sm font-medium text-mist-200">
-                Matched values — {sheet.sheet_name}
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-mono uppercase tracking-wider text-mist-400 border-b border-ink-700">
-                    <th className="px-4 py-2 font-medium">Column</th>
-                    <th className="px-4 py-2 font-medium">Original</th>
-                    <th className="px-4 py-2 font-medium">Suggested value</th>
-                    <th className="px-4 py-2 font-medium">Confidence</th>
-                    <th className="px-4 py-2 font-medium">Method</th>
-                    <th className="px-4 py-2 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id} className="border-b border-ink-800 last:border-0">
-                      <td className="px-4 py-2 font-mono text-mist-300">{row.column}</td>
-                      <td className="px-4 py-2 text-mist-200">{row.original}</td>
-                      <td className="px-4 py-2 text-mist-200">{row.candidate}</td>
-                      <td className="px-4 py-2 font-mono text-mist-300">
-                        {row.confidence != null ? `${(row.confidence * 100).toFixed(0)}%` : "—"}
-                      </td>
-                      <td className="px-4 py-2 font-mono text-mist-400 text-xs">
-                        {formatMatchMethod(row.tier)}
-                      </td>
-                      <td className="px-4 py-2">
-                        <DecisionBadge decision={row.decision} />
-                      </td>
+          <div
+            key={`${sheet.sheet_name}-detail`}
+            className="overflow-hidden rounded-lg border border-ink-700 bg-ink-900/30"
+          >
+            <button
+              type="button"
+              onClick={() => toggleSheet(sheet.sheet_name)}
+              className="w-full px-4 py-3 bg-ink-900/60 hover:bg-ink-800/60 transition-colors flex items-center justify-between text-left cursor-pointer select-none"
+              aria-expanded={isOpen}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`text-mist-400 transition-transform duration-200 text-sm inline-block font-mono ${
+                    isOpen ? "rotate-90" : ""
+                  }`}
+                >
+                  ›
+                </span>
+                <h3 className="text-sm font-medium text-mist-200">
+                  Matched values — {sheet.sheet_name}
+                </h3>
+                <span className="text-xs font-mono text-mist-400 bg-ink-800 border border-ink-700 px-2 py-0.5 rounded">
+                  {rows.length} {rows.length === 1 ? "value" : "values"}
+                </span>
+              </div>
+              <span className="text-xs text-teal-400 font-medium hover:text-teal-300">
+                {isOpen ? "Hide details" : "View details"}
+              </span>
+            </button>
+
+            {isOpen && (
+              <div className="overflow-x-auto border-t border-ink-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs font-mono uppercase tracking-wider text-mist-400 border-b border-ink-700 bg-ink-900/40">
+                      <th className="px-4 py-2 font-medium">Column</th>
+                      <th className="px-4 py-2 font-medium">Original</th>
+                      <th className="px-4 py-2 font-medium">Suggested value</th>
+                      <th className="px-4 py-2 font-medium">Confidence</th>
+                      <th className="px-4 py-2 font-medium">Method</th>
+                      <th className="px-4 py-2 font-medium">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="border-b border-ink-800 last:border-0 hover:bg-ink-800/30 transition-colors"
+                      >
+                        <td className="px-4 py-2 font-mono text-mist-300">{row.column}</td>
+                        <td className="px-4 py-2 text-mist-200">{row.original}</td>
+                        <td className="px-4 py-2 text-mist-200">{row.candidate}</td>
+                        <td className="px-4 py-2 font-mono text-mist-300">
+                          {row.confidence != null
+                            ? `${(row.confidence * 100).toFixed(0)}%`
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2 font-mono text-mist-400 text-xs">
+                          {formatMatchMethod(row.tier)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <DecisionBadge decision={row.decision} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         );
       })}

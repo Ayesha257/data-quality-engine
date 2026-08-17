@@ -8,6 +8,7 @@ import RunsPage from "./pages/RunsPage.jsx";
 import RunDetailPage from "./pages/RunDetailPage.jsx";
 import RulesPage from "./pages/RulesPage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
+import CompliancePage from "./pages/CompliancePage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 
 export default function App() {
@@ -27,6 +28,8 @@ export default function App() {
         <Route path="/runs" element={<RunsPage />} />
         <Route path="/runs/:runId" element={<RunDetailPage />} />
         <Route path="/rules" element={<RulesPage />} />
+        <Route path="/compliance" element={<CompliancePage />} />
+        <Route path="/compliance/:module" element={<CompliancePage />} />
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
 

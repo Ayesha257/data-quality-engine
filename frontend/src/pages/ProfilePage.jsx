@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
 
+
 function initialsFromProfile(profile, email) {
   const name = profile?.full_name?.trim();
   if (name) {
@@ -222,6 +223,7 @@ export default function ProfilePage() {
           />
         </div>
       </div>
+
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Account details */}

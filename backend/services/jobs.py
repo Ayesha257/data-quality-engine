@@ -96,7 +96,7 @@ def configure_executor(max_workers: int = _MAX_WORKERS) -> ThreadPoolExecutor:
 
 def get_executor() -> ThreadPoolExecutor:
     global _EXECUTOR
-    if _EXECUTOR is None:
+    if _EXECUTOR is None or getattr(_EXECUTOR, "_shutdown", False):
         _EXECUTOR = configure_executor()
     return _EXECUTOR
 
@@ -159,18 +159,15 @@ def _execute(
     write_report: bool,
     report_dir: str | None,
     gemini_api_key: str | None,
+    include_hipaa: bool = False,
 ) -> None:
     """Runs on a worker thread. Never raises -- every failure path updates
     the RunRecord instead, so a crashed run is always observable via the
     status endpoint rather than vanishing into a dead thread."""
-    # Imported lazily: main.py pulls in the full Phase 1 engine (pandas,
-    # spaCy/Presidio, etc). Importing it at module load time would make
-    # every API process pay that cost even for requests that never touch
-    # the pipeline (e.g. health checks) and would slow down test imports.
-    from main import run_pipeline
-
-    _mark_running(run_id)
     try:
+        from backend.main import run_pipeline
+
+        _mark_running(run_id)
         outcomes = run_pipeline(
             file_path,
             sheet_name,
@@ -183,90 +180,91 @@ def _execute(
             date_column=date_column,
             client_id=client_id,
             gemini_api_key=gemini_api_key,
+            include_hipaa=include_hipaa,
         )
-    except Exception as exc:  # noqa: BLE001 - surface as a failed run, not a dead thread
-        logger.exception("Run %s failed", run_id)
+
+        outcomes = outcomes or []
+        failed_sheets = [o for o in outcomes if o.get("error")]
+        scored = [o for o in outcomes if o.get("data_quality_score") is not None]
+
+        if not outcomes:
+            # Every sheet was hidden/empty/unreadable -- a real, reportable
+            # outcome for this file, not a crash. Any dataset can produce
+            # this (e.g. a workbook of only chart/config tabs).
+            _mark_failed(run_id, "No sheets were processed (empty, headerless, or all hidden).")
+            return
+
+        if failed_sheets and not scored:
+            # Nothing usable came out of any sheet.
+            first_error = failed_sheets[0].get("error") or "unknown error"
+            _mark_failed(run_id, f"All sheets failed. First error: {first_error}")
+            return
+
+        # Aggregate across sheets generically -- no sheet name or column name
+        # is ever inspected here. Multi-sheet files get an average score
+        # across successfully-scored sheets; single-sheet files (the common
+        # case) just get that sheet's score.
+        overall_score = (
+            sum(o["data_quality_score"] for o in scored) / len(scored) if scored else None
+        )
+        total_rows = sum(o["rows"] for o in scored if o.get("rows") is not None) or None
+        # cols_processed isn't summed across sheets (that's not a meaningful
+        # number); report the max width seen, which is still useful signal
+        # and never misleading the way a sum would be.
+        col_values = [o["columns"] for o in scored if o.get("columns") is not None]
+        total_cols = max(col_values) if col_values else None
+
+        # Aggregate per-dimension scores across scored sheets. Each outcome now
+        # carries its own `dimension_scores` dict (score/weight/available per
+        # dimension, straight from engine/scoring.py). Single-sheet files just
+        # pass that dict through; multi-sheet files average `score` across the
+        # sheets where that dimension was `available`, and keep the max weight
+        # seen (weight is a property of the rule config, not the data, so it's
+        # identical across sheets in practice).
+        dimension_scores: dict[str, Any] = {}
+        per_dim: dict[str, list[dict[str, Any]]] = {}
+        for o in scored:
+            for dim, info in (o.get("dimension_scores") or {}).items():
+                per_dim.setdefault(dim, []).append(info)
+
+        for dim, infos in per_dim.items():
+            available_infos = [i for i in infos if i.get("available") and isinstance(i.get("score"), (int, float))]
+            if available_infos:
+                avg_score = sum(i["score"] for i in available_infos) / len(available_infos)
+                dimension_scores[dim] = {
+                    "score": avg_score,
+                    "available": True,
+                    "weight": available_infos[0].get("weight", 0),
+                }
+            else:
+                dimension_scores[dim] = {
+                    "score": None,
+                    "available": False,
+                    "weight": infos[0].get("weight", 0) if infos else 0,
+                }
+
+        _mark_completed(
+            run_id,
+            rows_processed=total_rows,
+            cols_processed=total_cols,
+            overall_score=overall_score,
+            dimension_scores=_json_safe(dimension_scores),
+        )
+
+        # Stash the richer per-sheet detail (report paths, readiness verdicts,
+        # any partial failures) as a run manifest row -- generic JSON, no
+        # dataset-specific shape assumed by the writer. Sanitized through
+        # _json_safe first: outcomes come straight out of the pandas/numpy
+        # pipeline and a single stray numpy scalar here used to silently wipe
+        # out this entire block (see _json_safe's docstring).
+        try:
+            _write_manifest(run_id, _json_safe(outcomes))
+        except Exception:  # noqa: BLE001 - manifest is supplementary, never fails the run
+            logger.exception("Could not write manifest for run %s", run_id)
+
+    except Exception as exc:  # noqa: BLE001 - top-level safety: unhandled exception always marks run FAILED
+        logger.exception("Run %s failed with unhandled exception", run_id)
         _mark_failed(run_id, f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-2000:]}")
-        return
-
-    outcomes = outcomes or []
-    failed_sheets = [o for o in outcomes if o.get("error")]
-    scored = [o for o in outcomes if o.get("data_quality_score") is not None]
-
-    if not outcomes:
-        # Every sheet was hidden/empty/unreadable -- a real, reportable
-        # outcome for this file, not a crash. Any dataset can produce
-        # this (e.g. a workbook of only chart/config tabs).
-        _mark_failed(run_id, "No sheets were processed (empty, headerless, or all hidden).")
-        return
-
-    if failed_sheets and not scored:
-        # Nothing usable came out of any sheet.
-        first_error = failed_sheets[0].get("error") or "unknown error"
-        _mark_failed(run_id, f"All sheets failed. First error: {first_error}")
-        return
-
-    # Aggregate across sheets generically -- no sheet name or column name
-    # is ever inspected here. Multi-sheet files get an average score
-    # across successfully-scored sheets; single-sheet files (the common
-    # case) just get that sheet's score.
-    overall_score = (
-        sum(o["data_quality_score"] for o in scored) / len(scored) if scored else None
-    )
-    total_rows = sum(o["rows"] for o in scored if o.get("rows") is not None) or None
-    # cols_processed isn't summed across sheets (that's not a meaningful
-    # number); report the max width seen, which is still useful signal
-    # and never misleading the way a sum would be.
-    col_values = [o["columns"] for o in scored if o.get("columns") is not None]
-    total_cols = max(col_values) if col_values else None
-
-    # Aggregate per-dimension scores across scored sheets. Each outcome now
-    # carries its own `dimension_scores` dict (score/weight/available per
-    # dimension, straight from engine/scoring.py). Single-sheet files just
-    # pass that dict through; multi-sheet files average `score` across the
-    # sheets where that dimension was `available`, and keep the max weight
-    # seen (weight is a property of the rule config, not the data, so it's
-    # identical across sheets in practice).
-    dimension_scores: dict[str, Any] = {}
-    per_dim: dict[str, list[dict[str, Any]]] = {}
-    for o in scored:
-        for dim, info in (o.get("dimension_scores") or {}).items():
-            per_dim.setdefault(dim, []).append(info)
-
-    for dim, infos in per_dim.items():
-        available_infos = [i for i in infos if i.get("available") and isinstance(i.get("score"), (int, float))]
-        if available_infos:
-            avg_score = sum(i["score"] for i in available_infos) / len(available_infos)
-            dimension_scores[dim] = {
-                "score": avg_score,
-                "available": True,
-                "weight": available_infos[0].get("weight", 0),
-            }
-        else:
-            dimension_scores[dim] = {
-                "score": None,
-                "available": False,
-                "weight": infos[0].get("weight", 0) if infos else 0,
-            }
-
-    _mark_completed(
-        run_id,
-        rows_processed=total_rows,
-        cols_processed=total_cols,
-        overall_score=overall_score,
-        dimension_scores=_json_safe(dimension_scores),
-    )
-
-    # Stash the richer per-sheet detail (report paths, readiness verdicts,
-    # any partial failures) as a run manifest row -- generic JSON, no
-    # dataset-specific shape assumed by the writer. Sanitized through
-    # _json_safe first: outcomes come straight out of the pandas/numpy
-    # pipeline and a single stray numpy scalar here used to silently wipe
-    # out this entire block (see _json_safe's docstring).
-    try:
-        _write_manifest(run_id, _json_safe(outcomes))
-    except Exception:  # noqa: BLE001 - manifest is supplementary, never fails the run
-        logger.exception("Could not write manifest for run %s", run_id)
 
 
 def _write_manifest(run_id: str, outcomes: list[dict[str, Any]]) -> None:
@@ -311,6 +309,7 @@ def enqueue_run(
     write_report: bool = True,
     report_dir: str | None = None,
     gemini_api_key: str | None = None,
+    include_hipaa: bool = False,
 ) -> None:
     """Submit a run to the background executor. Returns immediately --
     the caller (routes.py) already created the PENDING RunRecord and hands
@@ -328,6 +327,7 @@ def enqueue_run(
         write_report=write_report,
         report_dir=report_dir,
         gemini_api_key=gemini_api_key,
+        include_hipaa=include_hipaa,
     )
 
 

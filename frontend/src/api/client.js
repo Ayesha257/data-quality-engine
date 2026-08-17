@@ -69,7 +69,15 @@ export const api = {
   getProfileStats: () => client.get("/v1/profile/stats").then((r) => r.data),
 
   // --- data quality pipeline ----------------------------------------
-  uploadFile: ({ clientId, file, sheetName, targetColumn, dateColumn, writeReport, geminiApiKey }) => {
+  uploadFile: ({
+    clientId,
+    file,
+    sheetName,
+    targetColumn,
+    dateColumn,
+    writeReport,
+    geminiApiKey,
+  }) => {
     const form = new FormData();
     form.append("file", file);
     const params = { client_id: clientId, write_report: writeReport };
@@ -86,6 +94,8 @@ export const api = {
   },
 
   getRunStatus: (runId) => client.get(`/v1/runs/${runId}/status`).then((r) => r.data),
+
+  deleteRun: (runId) => client.delete(`/v1/runs/${runId}`).then((r) => r.data),
 
   getRunResults: (runId) => client.get(`/v1/runs/${runId}/results`).then((r) => r.data),
 
@@ -121,6 +131,16 @@ export const api = {
     const params = sheetName ? { sheet_name: sheetName } : {};
     return client
       .get(`/v1/runs/${runId}/report/pdf`, { params, responseType: "blob" })
+      .then((r) => URL.createObjectURL(r.data));
+  },
+
+  // Standalone Compliance Report -- separate from the main report above.
+  // Same authenticated-blob pattern, just a different endpoint
+  // (GET /v1/runs/{run_id}/compliance-report).
+  fetchComplianceReportBlobUrl: (runId, sheetName) => {
+    const params = sheetName ? { sheet_name: sheetName } : {};
+    return client
+      .get(`/v1/runs/${runId}/compliance-report`, { params, responseType: "blob" })
       .then((r) => URL.createObjectURL(r.data));
   },
 

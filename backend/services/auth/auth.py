@@ -58,6 +58,18 @@ _JWT_ALGO = "HS256"
 _JWT_SECRET = os.environ.get("DQE_JWT_SECRET") or secrets.token_urlsafe(48)
 _ACCESS_TOKEN_TTL = timedelta(hours=int(os.environ.get("DQE_JWT_TTL_HOURS", "24") or 24))
 
+# Workaround for passlib 1.7.4 compatibility with bcrypt 4.x/5.x
+try:
+    import bcrypt
+    _orig_hashpw = bcrypt.hashpw
+    def _safe_hashpw(password, salt):
+        if isinstance(password, bytes) and len(password) > 72:
+            password = password[:72]
+        return _orig_hashpw(password, salt)
+    bcrypt.hashpw = _safe_hashpw
+except Exception:
+    pass
+
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")

@@ -55,6 +55,8 @@ from backend.engine.compliance import (
     assess_hipaa_compliance,
     assess_hipaa_compliance_as_check_results,
     score_hipaa_compliance,
+    build_compliance_report_data,
+    generate_compliance_html_report,
 )
 from backend.engine.reports.report_generator import build_report_data
 from backend.engine.reports.pdf_report import generate_pdf_report
@@ -910,6 +912,7 @@ def _write_ai_enhanced_report(
     out_dir,
     client_id: str,
     gemini_api_key: str | None,
+    include_hipaa: bool = False,
 ):
     """
     Bridges this pipeline's already-computed CheckResult lists (Task 2-5,
@@ -921,6 +924,18 @@ def _write_ai_enhanced_report(
     This is now the ONLY report --report writes (see run_pipeline's
     "if write_report:" block below). The old engine.report legacy HTML
     report generator has been removed from this pipeline.
+
+    include_hipaa: opt-out only. When True (default -- unchanged prior
+    behavior), the HIPAA PHI section is included in this report exactly as
+    before. When False, the HIPAA section is simply omitted from
+    check_results_by_name -- build_report_data() / the HTML/PDF renderers
+    already loop generically over whatever check names are present, so
+    omitting the key here is enough to gracefully drop the section with no
+    broken/empty placeholder. The underlying HIPAA analysis itself
+    (hipaa_summary) is never skipped or recomputed by this flag -- it is
+    always already computed upstream (see _print_hipaa_compliance_results)
+    so the standalone compliance report can reuse the exact same
+    CheckResult objects regardless of this flag.
 
     Raises on failure -- run_pipeline's caller wraps this in its own
     try/except so a report failure is surfaced as an [ERROR] line instead
@@ -950,7 +965,7 @@ def _write_ai_enhanced_report(
         check_results_by_name["fuzzy_match"] = non_skipped_fuzzy
     if referential_summary.get("referential_results"):
         check_results_by_name["referential_integrity"] = referential_summary["referential_results"]
-    if hipaa_summary and hipaa_summary.get("hipaa_check_results"):
+    if include_hipaa and hipaa_summary and hipaa_summary.get("hipaa_check_results"):
         check_results_by_name["hipaa_phi"] = hipaa_summary["hipaa_check_results"]
 
     fuzzy_results_param = {
@@ -1010,6 +1025,56 @@ def _write_ai_enhanced_report(
     return str(ai_path), pdf_path
 
 
+def _write_compliance_report(
+    *,
+    filepath: str,
+    sname: str,
+    row_count: int,
+    column_count: int,
+    hipaa_summary: dict | None,
+    out_dir,
+    gemini_api_key: str | None = None,
+) -> str | None:
+    """
+    Writes the standalone Compliance Report (currently HIPAA-only; see
+    engine/compliance/report.py for how a second regulation module would
+    be added). Reuses the exact same hipaa_check_results CheckResult
+    objects the main report's HIPAA section (when included) renders --
+    no second call into the HIPAA scanner/scorer, no duplicated analysis.
+
+    Independent of include_hipaa: the standalone compliance report always
+    reflects the compliance analysis for this run, regardless of whether
+    the main report was asked to include or omit its own HIPAA section --
+    those are two different presentation surfaces for the same underlying
+    result.
+
+    Best-effort, like the PDF report: returns None (never raises) if there
+    is nothing to report or if rendering fails, so a compliance-report
+    problem never blocks the main report or the rest of the pipeline.
+    """
+    if not hipaa_summary or not hipaa_summary.get("hipaa_check_results"):
+        return None
+    try:
+        modules = {"hipaa_phi": hipaa_summary["hipaa_check_results"]}
+        report_data = build_compliance_report_data(
+            filepath=filepath,
+            sheet_name=sname,
+            row_count=row_count,
+            column_count=column_count,
+            modules=modules,
+            gemini_api_key=gemini_api_key,
+        )
+        stem = Path(filepath).stem
+        safe_sheet = "".join(c if c.isalnum() else "_" for c in sname)
+        out_path = Path(out_dir) / f"{stem}_{safe_sheet}_compliance_report.html"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        generate_compliance_html_report(report_data, str(out_path))
+        return str(out_path)
+    except Exception as exc:  # noqa: BLE001 - best-effort, mirrors PDF report handling
+        print(f"\n[WARN] Compliance report generation failed for sheet '{sname}': {exc}")
+        return None
+
+
 def run_pipeline(
     filepath: str,
     sheet_name: str | None = None,
@@ -1023,6 +1088,7 @@ def run_pipeline(
     date_column: str | None = None,
     client_id: str = "default_client",
     gemini_api_key: str | None = None,
+    include_hipaa: bool = False,
 ) -> list[dict]:
     """
     Full Phase 1 + Phase 2 pipeline for one file (all sheets, or a single --sheet).
@@ -1072,6 +1138,7 @@ def run_pipeline(
             "ml_readiness_verdict": str | None,
             "ml_readiness_score": float | None,
             "report_path": str | None,   # only when write_report=True and it succeeded
+            "compliance_report_path": str | None,  # only when write_report=True and it succeeded
             "error": str | None,         # set instead of the above if this sheet raised
         }
     This is purely additive: every existing CLI/script caller already
@@ -1166,6 +1233,7 @@ def run_pipeline(
 
             report_path: str | None = None
             pdf_report_path: str | None = None
+            compliance_report_path: str | None = None
             report_error: str | None = None
             if write_report:
                 out_dir = Path(report_dir) if report_dir else SETTINGS["reports_dir"]
@@ -1191,12 +1259,29 @@ def run_pipeline(
                         out_dir=out_dir,
                         client_id=client_id,
                         gemini_api_key=gemini_api_key,
+                        include_hipaa=include_hipaa,
                     )
                     print(f"\nReport written: {report_path}")
                 except Exception as exc:  # noqa: BLE001 - report generation is
                     # best-effort and must never abort the remaining sheets.
                     report_error = str(exc)
                     print(f"\n[ERROR] Report generation failed for sheet '{sname}': {exc}")
+
+                # Standalone Compliance Report -- always attempted whenever
+                # write_report=True, independent of include_hipaa above
+                # (that flag only controls the main report's own section).
+                # Best-effort: never raises, never blocks the main report.
+                compliance_report_path = _write_compliance_report(
+                    filepath=filepath,
+                    sname=sname,
+                    row_count=len(df),
+                    column_count=df.shape[1],
+                    hipaa_summary=hipaa_summary,
+                    out_dir=out_dir,
+                    gemini_api_key=gemini_api_key,
+                )
+                if compliance_report_path:
+                    print(f"Compliance report written: {compliance_report_path}")
         except Exception as exc:  # noqa: BLE001 - never abort remaining sheets
             log_event(
                 logger,
@@ -1218,6 +1303,7 @@ def run_pipeline(
                 "ml_readiness_score": None,
                 "report_path": None,
                 "pdf_report_path": None,
+                "compliance_report_path": None,
                 "error": str(exc),
             })
             continue
@@ -1325,6 +1411,7 @@ def run_pipeline(
             ),
             "report_path": report_path,
             "pdf_report_path": pdf_report_path,
+            "compliance_report_path": compliance_report_path,
             "entity_resolution": entity_resolution_summary,
             "entity_resolution_auto": (entity_resolution_summary or {}).get("summary", {}).get(
                 "auto_match"
@@ -1419,6 +1506,15 @@ def build_parser() -> argparse.ArgumentParser:
         "the GEMINI_API_KEY env var, and if that's also unset the Inspect "
         "button uses rule-based explanations instead of AI.",
     )
+    p.add_argument(
+        "--no-hipaa-in-report",
+        action="store_true",
+        help="Only used with --report. Omit the HIPAA PHI compliance "
+        "section from the main data quality report (default: included). "
+        "The HIPAA analysis itself always still runs and is always "
+        "available in the separate standalone Compliance Report, "
+        "regardless of this flag.",
+    )
     return p
 
 
@@ -1438,4 +1534,5 @@ if __name__ == "__main__":
         date_column=args.date_column,
         client_id=args.client_id,
         gemini_api_key=args.gemini_api_key,
+        include_hipaa=not args.no_hipaa_in_report,
     )

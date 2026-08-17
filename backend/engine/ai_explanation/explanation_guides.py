@@ -176,16 +176,23 @@ CHECK_GUIDE: dict[str, dict[str, str]] = {
     },
     "hipaa_phi": {
         "what_it_means": (
-            "This scan looks for Protected Health Information (PHI) under HIPAA — identifiers combined "
-            "with health context that may require special legal and technical safeguards before use or sharing."
+            "This scan evaluates your dataset for Protected Health Information (PHI) under the Health Insurance "
+            "Portability and Accountability Act (HIPAA). PHI includes 18 specific categories of personal identifiers "
+            "(such as patient names, phone numbers, email addresses, Social Security numbers, medical record numbers, dates, "
+            "and geographic details) when associated with healthcare services or payment data. Under US federal law (45 CFR Part 160 "
+            "and Part 164), dataset handlers must safeguard PHI to protect individual patient privacy."
         ),
         "how_we_check": (
-            "We map detected sensitive patterns to HIPAA identifier categories and score exposure based on "
-            "which types appear and in how many columns — without re-displaying actual patient values."
+            "We scan column headers, data formats, and structural patterns across all rows to detect HIPAA identifier categories. "
+            "We calculate a HIPAA Exposure Score (0 to 100) based on identifier severity, count of affected columns, and sensitivity "
+            "of detected fields. Raw patient values are NEVER copied or stored in this report — only identifier categories and "
+            "column-level summary metrics are recorded."
         ),
         "fix_hints": (
-            "Apply HIPAA-aligned masking, access controls, and business associate agreements before using "
-            "this data outside approved clinical or compliance workflows."
+            "1. De-identify or mask sensitive columns (e.g. redact phone numbers or convert birth dates to age ranges) "
+            "following HIPAA Safe Harbor guidelines (45 CFR § 164.514(b)). "
+            "2. Restrict dataset access to authorized personnel with a signed Business Associate Agreement (BAA) in place. "
+            "3. Ensure the file is encrypted at rest (AES-256) and in transit (TLS 1.3) before transferring outside secure networks."
         ),
     },
     "fuzzy_match": {

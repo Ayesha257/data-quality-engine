@@ -5,6 +5,7 @@ const navItems = [
   { to: "/upload", label: "New Scan" },
   { to: "/runs", label: "Runs" },
   { to: "/rules", label: "Rules" },
+  { to: "/compliance", label: "Compliance" },
   { to: "/profile", label: "Profile" },
 ];
 

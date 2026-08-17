@@ -56,6 +56,7 @@ class SheetResult(BaseModel):
     entity_resolution: dict[str, Any] | None = None
     report_path: str | None = None
     pdf_report_path: str | None = None
+    compliance_report_path: str | None = None
     error: str | None = None
 
 
@@ -149,6 +150,7 @@ class RunSummary(BaseModel):
     overall_score: float | None = None
     started_at: datetime
     completed_at: datetime | None = None
+    has_compliance_report: bool = False
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

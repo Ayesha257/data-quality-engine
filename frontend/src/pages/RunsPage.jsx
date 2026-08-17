@@ -12,8 +12,26 @@ export default function RunsPage() {
   const load = () => {
     api
       .listRuns(clientId)
-      .then(setRuns)
+      .then((all) => {
+        setRuns(all || []);
+      })
       .catch((e) => setError(e.message));
+  };
+
+  const handleDelete = async (runId, fileName) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete the scan for "${fileName}"? This will permanently remove its reports and data.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.deleteRun(runId);
+      setRuns((prev) => (prev ? prev.filter((r) => r.run_id !== runId) : []));
+    } catch (e) {
+      setError(`Failed to delete run: ${e.message}`);
+    }
   };
 
   useEffect(() => {
@@ -66,7 +84,7 @@ export default function RunsPage() {
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium">Score</th>
                 <th className="px-5 py-3 font-medium">Started</th>
-                <th className="px-5 py-3 font-medium" />
+                <th className="px-5 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -82,10 +100,18 @@ export default function RunsPage() {
                   <td className="px-5 py-3.5 text-mist-400">
                     {new Date(run.started_at).toLocaleString()}
                   </td>
-                  <td className="px-5 py-3.5 text-right">
+                  <td className="px-5 py-3.5 text-right whitespace-nowrap">
                     <Link to={`/runs/${run.run_id}`} className="text-teal-400 hover:text-teal-300 font-medium">
                       View →
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(run.run_id, run.file_name)}
+                      className="ml-3 text-rose-400 hover:text-rose-300 font-medium text-xs hover:underline cursor-pointer"
+                      title="Delete run"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}

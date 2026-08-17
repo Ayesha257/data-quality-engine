@@ -651,11 +651,13 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
 
     readiness_color = _READINESS_COLORS.get(sc["readiness"], "#97907F")
     rating_color = _RATING_COLORS.get(sc["rating"], "#97907F")
+    hipaa_in_report = "hipaa_phi" in d["checks"]
     compliance = sc.get("compliance_adjusted")
     overall = sc.get("overall")
     compliance_note = ""
     if (
-        compliance is not None
+        hipaa_in_report
+        and compliance is not None
         and overall is not None
         and float(compliance) < float(overall) - 0.05
     ):
@@ -664,6 +666,27 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
             f"Compliance-adjusted score (HIPAA PHI): "
             f'<b style="color:white">{float(compliance):.1f}</b> / 100</div>'
         )
+
+    scoring_formula_note = (
+        "Composite = weighted average across scorable dimensions (including "
+        "privacy_sensitivity for PII). HIPAA exposure may apply a proportional "
+        "ceiling when PHI is detected. Weights re-normalized when a dimension "
+        "has no results."
+        if hipaa_in_report
+        else "Composite = weighted average across scorable dimensions (including "
+        "privacy_sensitivity for PII). Weights re-normalized when a dimension "
+        "has no results."
+    )
+    hipaa_methodology_note = ""
+    if hipaa_in_report:
+        hipaa_methodology_note = """
+    <p><b>HIPAA ceiling (hybrid):</b> When M9 PHI exposure is detected, the headline
+    score is capped at the <b>stricter</b> of (a) a proportional ceiling from
+    exposure_score, or (b) a severity floor (high&rarr;70, medium&rarr;74,
+    low&rarr;89). The weighted <code>privacy_sensitivity</code> dimension (10%)
+    still applies in the raw composite first — stewards see column-level PII
+    impact in the breakdown; the cap ensures compliance-grade PHI cannot yield
+    a near-perfect headline score.</p>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -793,18 +816,9 @@ def generate_html_report(report_data: dict[str, Any], output_path: str) -> str:
   <div class="card">
     <h2>Appendix &mdash; Methodology</h2>
     <p><b>Scoring formula:</b> Each dimension score = 100 &times; (passed checks / total non-error checks).
-    Composite = weighted average across scorable dimensions (including
-    privacy_sensitivity for PII). HIPAA exposure may apply a proportional
-    ceiling when PHI is detected. Weights re-normalized when a dimension
-    has no results.</p>
+    {scoring_formula_note}</p>
     <p><b>Quality dimensions:</b> {', '.join(f"{k.replace('_', ' ').title()} ({v.get('weight', 0):.0%})" for k, v in sc['dimension_scores'].items())}</p>
-    <p><b>HIPAA ceiling (hybrid):</b> When M9 PHI exposure is detected, the headline
-    score is capped at the <b>stricter</b> of (a) a proportional ceiling from
-    exposure_score, or (b) a severity floor (high&rarr;70, medium&rarr;74,
-    low&rarr;89). The weighted <code>privacy_sensitivity</code> dimension (10%)
-    still applies in the raw composite first — stewards see column-level PII
-    impact in the breakdown; the cap ensures compliance-grade PHI cannot yield
-    a near-perfect headline score.</p>
+    {hipaa_methodology_note}
     <p><b>Severity badges:</b> Critical / High / Medium / Low use the same proportional
     thresholds as dimension scoring. &ge;50% impact = Critical, &ge;20% = High,
     &ge;5% = Medium, &gt;0% = Low.</p>

@@ -21,6 +21,11 @@ from backend.engine.compliance.scoring import (
     HipaaComplianceScore,
     score_hipaa_compliance,
 )
+from backend.engine.compliance.report import (
+    COMPLIANCE_MODULE_LABELS,
+    build_compliance_report_data,
+    generate_compliance_html_report,
+)
 
 __all__ = [
     "HipaaHit",
@@ -31,4 +36,7 @@ __all__ = [
     "assess_hipaa_compliance_as_check_results",
     "HipaaComplianceScore",
     "score_hipaa_compliance",
+    "COMPLIANCE_MODULE_LABELS",
+    "build_compliance_report_data",
+    "generate_compliance_html_report",
 ]

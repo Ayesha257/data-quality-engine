@@ -35,8 +35,34 @@ class RunStatusResponse(BaseModel):
     error_message: str | None = None
     started_at: datetime
     completed_at: datetime | None = None
+    # Set only while status == "awaiting_confirmation". Shape (from
+    # engine/api_prompt.py::APIPrompt.confirm()):
+    #   {type: "header_row", sheet_name, message, detected_header_row,
+    #    headerless, header_values, rows_above, rows_below, note}
+    # rows_above/rows_below are each a list of {row_index, values}.
+    pending_confirmation: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class RunConfirmRequest(BaseModel):
+    """Body for POST /v1/runs/{run_id}/confirm -- answers whatever
+    checkpoint is currently in RunStatusResponse.pending_confirmation."""
+
+    accept: bool = Field(
+        description="True to accept the detected header row as-is. "
+        "False to override it with override_header_row."
+    )
+    override_header_row: int | None = Field(
+        default=None,
+        description="Required when accept=False: the correct 0-based header "
+        "row index, or -1 to load the sheet as headerless.",
+    )
+
+
+class RunConfirmResponse(BaseModel):
+    run_id: str
+    status: RunStatus
 
 
 class SheetResult(BaseModel):

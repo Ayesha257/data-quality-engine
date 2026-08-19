@@ -29,6 +29,15 @@ class UserPrompt:
         """Ask the user for free text (e.g. comma-separated column subset)."""
         raise NotImplementedError
 
+    def set_context(self, sheet_name: str) -> None:
+        """Optional hook: called once per sheet before that sheet's
+        checkpoints run, so an implementation that needs to know which
+        sheet a checkpoint belongs to (e.g. APIPrompt, for the payload it
+        surfaces over HTTP) can record it. No-op by default -- CLIPrompt
+        prints the sheet name separately in main.py's console output and
+        HeadlessPrompt never needs it.
+        """
+
 
 class CLIPrompt(UserPrompt):
     """Console-backed prompt for Phase 1 CLI runs."""

@@ -13,6 +13,7 @@ export default function UploadPage() {
   const [targetColumn, setTargetColumn] = useState("");
   const [dateColumn, setDateColumn] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
+  const [interactive, setInteractive] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -40,6 +41,7 @@ export default function UploadPage() {
         dateColumn: dateColumn || undefined,
         writeReport: true,
         geminiApiKey: geminiKey || undefined,
+        interactive,
       });
       navigate(`/runs/${res.run_id}`);
     } catch (e2) {
@@ -128,6 +130,22 @@ export default function UploadPage() {
             {error}
           </div>
         )}
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={interactive}
+            onChange={(e) => setInteractive(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+          />
+          <span className="text-sm text-mist-300">
+            Ask me to confirm the detected header row before scoring
+            <span className="block text-xs text-mist-400 mt-0.5">
+              Recommended for unfamiliar or irregularly-formatted files. Pauses the scan per sheet so you can
+              review or override the detected header row.
+            </span>
+          </span>
+        </label>
 
         <div className="flex justify-end gap-3">
           <button type="submit" className="btn-primary" disabled={submitting}>

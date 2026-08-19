@@ -43,39 +43,12 @@ from typing import Any
 
 from backend.config.settings import SETTINGS
 from backend.engine.headless_prompt import HeadlessPrompt
+from backend.engine.api_prompt import APIPrompt
+from backend.engine.json_safe import json_safe as _json_safe
 from backend.database import get_session
 from backend.database.models import RunRecord, RunStatus
 
 logger = logging.getLogger("dqe.phase2.api.jobs")
-
-
-def _json_safe(value: Any) -> Any:
-    """Recursively coerces numpy/pandas scalar types (int64, bool_,
-    Timestamp, etc.) that leak out of the pandas-based pipeline into
-    plain JSON-serializable Python types.
-
-    Why this exists: SQLAlchemy's JSON column type serializes via the
-    stdlib `json` module. `json.dumps` happily accepts `numpy.float64`
-    (it subclasses `float`) but raises TypeError on `numpy.int64`,
-    `numpy.bool_`, and `pandas.Timestamp` -- none of which are float
-    subclasses. Before this helper, a single stray numpy int anywhere in
-    a run's outcome dict (e.g. a readiness score, a verdict count) would
-    make the whole manifest/dimension-score write raise, get caught by
-    the caller's bare except, and silently leave that run's Sheets table
-    and dimension breakdown permanently empty -- with no visible error
-    to the user or an obvious way to recover short of re-running.
-    """
-    if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, float):  # covers numpy.float64 too (it IS a float)
-        return value
-    if hasattr(value, "item"):  # numpy scalar (int64, bool_, float32, ...)
-        return value.item()
-    if hasattr(value, "isoformat"):  # datetime/date/Timestamp
-        return value.isoformat()
-    return value
 
 # Bounded so a burst of uploads can't spawn unbounded threads / open file
 # handles / pandas workloads at once. 4 is a conservative default for a
@@ -160,18 +133,31 @@ def _execute(
     report_dir: str | None,
     gemini_api_key: str | None,
     include_hipaa: bool = False,
+    interactive: bool = False,
 ) -> None:
     """Runs on a worker thread. Never raises -- every failure path updates
     the RunRecord instead, so a crashed run is always observable via the
-    status endpoint rather than vanishing into a dead thread."""
+    status endpoint rather than vanishing into a dead thread.
+
+    interactive=False (default): HeadlessPrompt auto-accepts every
+    checkpoint, exactly as before -- every existing caller/test keeps this
+    behavior unchanged.
+    interactive=True: APIPrompt actually pauses this thread at the
+    header-row checkpoint and waits for POST /v1/runs/{run_id}/confirm
+    (see engine/api_prompt.py). The RunRecord's status flips to
+    AWAITING_CONFIRMATION for the duration of the pause, so _mark_running
+    below reflects the state before the first checkpoint; APIPrompt itself
+    owns the AWAITING_CONFIRMATION <-> RUNNING transitions after that.
+    """
     try:
         from backend.main import run_pipeline
 
         _mark_running(run_id)
+        prompt = APIPrompt(run_id) if interactive else HeadlessPrompt()
         outcomes = run_pipeline(
             file_path,
             sheet_name,
-            prompt=HeadlessPrompt(),
+            prompt=prompt,
             reference_dir=reference_dir,
             include_products=include_products,
             write_report=write_report,
@@ -310,6 +296,7 @@ def enqueue_run(
     report_dir: str | None = None,
     gemini_api_key: str | None = None,
     include_hipaa: bool = False,
+    interactive: bool = False,
 ) -> None:
     """Submit a run to the background executor. Returns immediately --
     the caller (routes.py) already created the PENDING RunRecord and hands
@@ -328,6 +315,7 @@ def enqueue_run(
         report_dir=report_dir,
         gemini_api_key=gemini_api_key,
         include_hipaa=include_hipaa,
+        interactive=interactive,
     )
 
 

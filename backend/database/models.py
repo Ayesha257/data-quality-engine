@@ -110,6 +110,11 @@ class User(Base):  # noqa: F821 - `Base` is defined earlier in models.py
 class RunStatus(str, enum.Enum):
     PENDING = "pending"
     RUNNING = "running"
+    # Paused at a human-in-the-loop checkpoint (currently: header-row
+    # detection) waiting on POST /v1/runs/{run_id}/confirm. Only reachable
+    # for runs started with interactive=true (see routes.py's upload_file);
+    # every existing headless run still goes straight pending -> running.
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -145,6 +150,11 @@ class RunRecord(Base):
     dimension_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Populated only while status == AWAITING_CONFIRMATION; see
+    # engine/api_prompt.py::APIPrompt.confirm(). Cleared (set back to
+    # None) the moment a human answers via POST /v1/runs/{id}/confirm.
+    pending_confirmation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

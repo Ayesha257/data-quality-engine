@@ -1189,6 +1189,7 @@ def run_pipeline(
             print("Skipped: empty or no header found")
             continue
         preview = header_preview(raw_df, detected)
+        prompt.set_context(sname)
         header_row = confirm_header_row(prompt, detected, preview)
 
         df = load_with_confirmed_header(raw_df, header_row)

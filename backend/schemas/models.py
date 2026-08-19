@@ -27,6 +27,9 @@ _CLIENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{2,64}$")
 class RunStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    # Keep in sync with backend.database.models.RunStatus -- see that
+    # enum's comment for what this means.
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
     COMPLETED = "completed"
     FAILED = "failed"
 

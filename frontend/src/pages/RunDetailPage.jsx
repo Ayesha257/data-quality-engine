@@ -5,6 +5,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import ScoreDial from "../components/ScoreDial.jsx";
 import DimensionBars from "../components/DimensionBars.jsx";
 import EntityResolutionPanel from "../components/EntityResolutionPanel.jsx";
+import HeaderConfirmPanel from "../components/HeaderConfirmPanel.jsx";
 
 const TERMINAL = new Set(["completed", "failed"]);
 
@@ -19,6 +20,7 @@ export default function RunDetailPage() {
   const [reportLoading, setReportLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState(null);
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -59,6 +61,21 @@ export default function RunDetailPage() {
   }, [runId]);
 
   useEffect(() => () => reportUrl && URL.revokeObjectURL(reportUrl), [reportUrl]);
+
+  const submitConfirmation = async ({ accept, overrideHeaderRow }) => {
+    setConfirmSubmitting(true);
+    try {
+      await api.confirmRun(runId, { accept, overrideHeaderRow });
+      // Refresh immediately instead of waiting for the next 2.5s poll tick,
+      // so the panel doesn't just sit there after a successful submit.
+      const s = await api.getRunStatus(runId);
+      setStatus(s);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setConfirmSubmitting(false);
+    }
+  };
 
   const openReport = async (sheetName) => {
     setReportLoading(true);
@@ -136,6 +153,14 @@ export default function RunDetailPage() {
             This page updates automatically — checks run per sheet, then scores are composed.
           </p>
         </div>
+      )}
+
+      {status.status === "awaiting_confirmation" && status.pending_confirmation && (
+        <HeaderConfirmPanel
+          confirmation={status.pending_confirmation}
+          onConfirm={submitConfirmation}
+          submitting={confirmSubmitting}
+        />
       )}
 
       {status.status === "failed" && (

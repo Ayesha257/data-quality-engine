@@ -77,6 +77,7 @@ export const api = {
     dateColumn,
     writeReport,
     geminiApiKey,
+    interactive,
   }) => {
     const form = new FormData();
     form.append("file", file);
@@ -85,6 +86,7 @@ export const api = {
     if (targetColumn) params.target_column = targetColumn;
     if (dateColumn) params.date_column = dateColumn;
     if (geminiApiKey) params.gemini_api_key = geminiApiKey;
+    if (interactive) params.interactive = true;
     return client
       .post("/v1/files/upload", form, {
         params,
@@ -94,6 +96,17 @@ export const api = {
   },
 
   getRunStatus: (runId) => client.get(`/v1/runs/${runId}/status`).then((r) => r.data),
+
+  // Answers the checkpoint in a run's status.pending_confirmation.
+  // { accept: true } keeps the detected header row; { accept: false,
+  // overrideHeaderRow } replaces it (-1 = load the sheet as headerless).
+  confirmRun: (runId, { accept, overrideHeaderRow }) =>
+    client
+      .post(`/v1/runs/${runId}/confirm`, {
+        accept,
+        override_header_row: overrideHeaderRow ?? null,
+      })
+      .then((r) => r.data),
 
   deleteRun: (runId) => client.delete(`/v1/runs/${runId}`).then((r) => r.data),
 

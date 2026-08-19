@@ -19,6 +19,7 @@ from sqlalchemy import text as sql_text
 
 from backend.config.settings import SETTINGS
 from backend import get_rule_resolver
+from backend.engine import api_prompt
 from backend.services import jobs
 from backend.services.auth.auth import require_client_access, resolve_api_key
 from backend.schemas.api import (
@@ -30,6 +31,8 @@ from backend.schemas.api import (
     RuleDryRunResponse,
     RuleSaveRequest,
     RuleSaveResponse,
+    RunConfirmRequest,
+    RunConfirmResponse,
     RunListResponse,
     RunResultsResponse,
     RunStatusResponse,
@@ -111,6 +114,12 @@ async def upload_file(
     gemini_api_key: str | None = Query(
         None, description="Optional: overrides the GEMINI_API_KEY env var for this run's report"
     ),
+    interactive: bool = Query(
+        False,
+        description="If true, pause and wait for a human to confirm each sheet's "
+        "detected header row via POST /v1/runs/{run_id}/confirm instead of "
+        "auto-accepting it (default: False, same behavior as before).",
+    ),
 ) -> FileUploadResponse:
     """
     Upload a file and start processing it in the background.
@@ -120,7 +129,9 @@ async def upload_file(
     already dataset-agnostic (see engine/ingestion.py, column_classifier.py).
     This endpoint's only job is: validate the envelope (extension, size),
     persist the bytes, create a PENDING run record, and hand off to the
-    background executor. Poll GET /v1/runs/{run_id}/status for progress.
+    background executor. Poll GET /v1/runs/{run_id}/status for progress --
+    when interactive=true, status can pause at "awaiting_confirmation";
+    see get_run_status()'s and confirm_run()'s docstrings.
     """
     _validate_client_id(client_id)
     require_client_access(authenticated_client_id, client_id)
@@ -170,6 +181,7 @@ async def upload_file(
         write_report=write_report,
         gemini_api_key=gemini_api_key,
         include_hipaa=include_hipaa,
+        interactive=interactive,
     )
 
     return FileUploadResponse(
@@ -323,6 +335,64 @@ def get_run_status(
     run = _get_run_or_404(run_id)
     require_client_access(authenticated_client_id, run.client_id)
     return RunStatusResponse.model_validate(run)
+
+
+@router.post("/v1/runs/{run_id}/confirm", response_model=RunConfirmResponse)
+def confirm_run(
+    run_id: str,
+    body: RunConfirmRequest,
+    authenticated_client_id: str = Depends(resolve_api_key),
+) -> RunConfirmResponse:
+    """
+    Answer the checkpoint currently sitting in
+    GET /v1/runs/{run_id}/status's pending_confirmation field.
+
+    Only valid while the run's status is "awaiting_confirmation" (i.e. it
+    was started with interactive=true and is paused at a sheet's
+    header-row checkpoint -- see engine/api_prompt.py). Wakes the paused
+    background thread, which resumes the pipeline for that sheet and, for
+    a multi-sheet file, may pause again at the next sheet's checkpoint.
+    """
+    run = _get_run_or_404(run_id)
+    require_client_access(authenticated_client_id, run.client_id)
+
+    if run.status != RunStatus.AWAITING_CONFIRMATION:
+        raise HTTPException(
+            409,
+            f"Run '{run_id}' is not awaiting confirmation (status={run.status.value}).",
+        )
+    if not body.accept and body.override_header_row is None:
+        raise HTTPException(
+            422, "override_header_row is required when accept is false."
+        )
+
+    resolved = api_prompt.submit_answer(
+        run_id,
+        {"accept": body.accept, "override_header_row": body.override_header_row},
+    )
+    if not resolved:
+        # The checkpoint's wait already timed out (or this run never
+        # actually paused) between the status the client saw and this
+        # request landing -- report that plainly rather than pretending
+        # the answer was applied.
+        raise HTTPException(
+            409,
+            f"Run '{run_id}' is no longer waiting on a confirmation "
+            "(it may have timed out or already been answered).",
+        )
+
+    with get_session() as session:
+        run = session.get(RunRecord, run_id)
+        # APIPrompt flips this back to RUNNING itself once its wait()
+        # unblocks, but set it here too so the response the caller gets
+        # back reflects the resumed state immediately rather than a
+        # possible one-tick-stale AWAITING_CONFIRMATION if they poll
+        # status before the worker thread has woken up.
+        if run is not None and run.status == RunStatus.AWAITING_CONFIRMATION:
+            run.status = RunStatus.RUNNING
+        status = run.status if run is not None else RunStatus.RUNNING
+
+    return RunConfirmResponse(run_id=run_id, status=status)
 
 
 @router.delete("/v1/runs/{run_id}", status_code=204)

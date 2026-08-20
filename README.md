@@ -1,43 +1,108 @@
 # Data Quality Engine
 
-Rule-based Phase 1 engine that turns messy client Excel/CSV files into explainable data-quality reports — extended in Phase 2 with an AI explanation layer that narrates those findings in plain language. All decisions (what's wrong, severity, what to do) are made deterministically by Phase 1; AI only explains, never decides.
+A deterministic data-quality pipeline for messy client Excel/CSV files, wrapped in an AI explanation layer, a HIPAA/PHI compliance scanner, ML-readiness scoring, entity resolution, and a full REST API + web console.
 
-**Author:** Ayesha Amer
+Every finding — what's wrong, how severe it is, what to do about it — is computed by a rule-based Phase 1 engine. Nothing downstream (AI, API, frontend) is ever allowed to change a decision; it can only explain, serve, or display one.
 
-**Status:** Phase 1 complete · Phase 2 M1 (foundations) + M2 (AI explanation layer) complete
+**Status:** Phase 1 complete · Phase 2 — M1, M2, M3, M4, M6, M9 complete
 
 ---
 
-## What it does
+## Purpose
 
-### Phase 1 — deterministic checks
+Client data almost never arrives clean. Before it can be trusted for reporting, forecasting, or handoff to another system, someone has to answer: *what's actually wrong with this file, how bad is it, and is it safe to use?*
+
+This engine answers that deterministically, then layers on plain-language explanations, a HIPAA-identifier scan for healthcare data, a readiness check for time-series forecasting, cross-file entity resolution, and a real API + web console around it.
+
+## Architecture
+
+```
+Phase 1 — Deterministic Engine (backend/engine/)
+Header detection → profiling → outliers → PII → standardization → 8-dimension scoring
+Makes every decision. Runs standalone.
+        │  (one-way: Phase 2 reads Phase 1, never the reverse)
+        ▼
+Phase 2 — Intelligence Layer
+AI explanations (Gemini, w/ deterministic fallback) · HIPAA/PHI compliance scan
+ML-readiness scoring · Entity resolution · Per-client rule versioning · Run logging
+        ▼
+FastAPI service (backend/app.py) — auth, uploads, run status, reports, rules
+        ▼
+React console (frontend/) — upload, run history, score dials, rule builder,
+compliance & entity-resolution views
+```
+
+## Features
+
+### Deterministic checks
 
 | Step | What runs |
-|------|-----------|
-| **Task 1** | Header-row detection + human confirmation |
-| **Encoding Check** | CSV raw-byte encoding via chardet; skipped for Excel |
-| **Task 2** | Missing values, duplicates, type mismatches |
-| **Task 3** | Outlier detection (IQR / optional KNN), column-role aware |
-| **Task 4** | PII detection + masking (privacy risk reported separately) |
-| **Task 5** | Fuzzy text standardization via RapidFuzz |
-| **Dimensions** | Schema quality, consistency, validity, freshness |
-| **Scoring** | Weighted 8-dimension Data Quality Score |
+|---|---|
+| Task 1 | Header-row detection + human confirmation |
+| Encoding check | CSV raw-byte encoding via `chardet`; skipped for Excel |
+| Task 2 | Missing values, duplicates, type mismatches |
+| Task 3 | Outlier detection (IQR / optional KNN), column-role aware |
+| Task 4 | PII detection + masking (privacy risk reported separately) |
+| Task 5 | Fuzzy text standardization via RapidFuzz |
+| Dimensions | Schema quality, consistency, validity, freshness |
+| Scoring | Weighted 8-dimension Data Quality Score |
 
-### Phase 2 — intelligence layer (built on top, never modifies Phase 1)
+### Intelligence layer
 
 | Milestone | What it adds |
 |---|---|
-| **M1 — Foundations** | Database + session management, structured JSONL run logging, per-client business rule resolution, Pydantic schemas |
-| **M2 — AI Explanation Layer** | Gemini-powered "Inspect" button on every check card, explaining Phase 1's findings in plain language |
-| **M2 — Resilience** | Rate limiting + retry/backoff around Gemini calls; automatic fallback to rule-based text if AI is unreachable — report is never blocked |
-| **M2 — PII Inspect Coverage** | PII section gets an AI explanation too, including the zero-findings case |
-| **M2 — History & Trend** | Score is recorded per client/file; next run shows an improved/declined/unchanged trend |
+| **M1 — Foundations** | Database + sessions, structured JSONL run logging, per-client versioned rule resolution, Pydantic schemas |
+| **M2 — AI Explanation Layer** | Gemini-powered "Inspect" button on every check card, plain-language narration of Phase 1's findings; rate-limited with retry/backoff and automatic rule-based fallback if AI is unreachable — reports are never blocked |
+| **M3 — ML Readiness** | Prophet-specific precondition checks (temporal sufficiency, interval regularity, target integrity, leakage) combined into a weighted readiness score and `ready` / `caution` / `not_ready` verdict |
+| **M4 — REST API + Console** | FastAPI service with JWT auth, file upload, async runs, report/rule endpoints, backed by SQLAlchemy — paired with a React + Vite + Tailwind web console |
+| **M6 — Entity Resolution** | Column-level resolution cascade: exact lookup table → fuzzy matching (RapidFuzz) → semantic fallback (sentence-transformers) |
+| **M9 — HIPAA/PHI Compliance** | Maps PII hits plus new HIPAA-specific recognizers onto the 18 official HHS Safe Harbor identifiers; reports a dataset-level posture with counts per identifier per column only — never raw values |
 
-**Design principle** (see `PHASE2_PLAN.md`): *"AI explains findings; Phase 1 makes decisions."* AI never decides severity or touches data — it only restates numbers Phase 1 already computed. If the AI call fails, the same deterministic explanation renders instead.
+## Tech stack
 
----
+**Backend:** Python, FastAPI, SQLAlchemy, Pydantic, pandas/numpy, Presidio + spaCy (PII/NER), RapidFuzz, sentence-transformers, PyOD, Jinja2 + fpdf2 (reports), JWT (PyJWT + passlib)
 
-## Setup
+**Frontend:** React 18, React Router, Vite, Tailwind CSS, Axios, Vitest + Testing Library
+
+**AI:** Google Gemini (`gemini-2.5-flash` by default) for explanation generation only — never for detection or scoring
+
+## Project layout
+
+```
+backend/
+  app.py                     # FastAPI application factory
+  main.py                    # Phase 1 pipeline orchestration
+  config/                    # thresholds, rubric weights, per-client rule overrides
+  engine/
+    checks/                  # missing values, duplicates, outliers, type mismatch, validity, ...
+    pii/                     # detect_pii.py, mask_pii.py
+    compliance/              # HIPAA identifier mapping, scanning, scoring, reporting
+    readiness/               # temporal / interval / target / leakage → Prophet readiness score
+    entity_resolution/       # lookup → fuzzy → semantic cascade
+    standardization/         # fuzzy text standardization
+    ai_explanation/          # Gemini calls, prompts, retry, fallback text, report injection
+    reports/                 # HTML/PDF report generation
+  database/                  # SQLAlchemy models + sessions
+  schemas/                   # Pydantic request/response/config models
+  services/                  # auth, profile, jobs, per-client rules
+  routes/                    # auth, profile, and core API routes
+
+frontend/
+  src/
+    pages/                   # Login, Register, Upload, Runs, RunDetail, Rules, Compliance, Profile
+    components/               # FileDrop, ScoreDial, DimensionBars, RuleBuilder, EntityResolutionPanel, ...
+
+config/clients/               # per-client rule overrides
+notebooks/                    # Phase 1 development notebooks
+tests/                        # pytest suite (backend)
+main.py                       # Phase 1 CLI entrypoint
+generate_report_phase2.py     # Phase 2 AI-enhanced report CLI
+plan.md / PHASE2_PLAN.md / PHASE2_HIPAA_PHI_PLAN.md   # technical plans
+```
+
+## Getting started
+
+### Backend
 
 ```bash
 python -m venv venv
@@ -45,92 +110,54 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-### Phase 2 `.env` (never commit this file)
+Copy `.env.example` to `.env` and fill in what you need (database URL, `DQE_JWT_SECRET`, and optionally `GEMINI_API_KEY` — reports and Inspect buttons still work without a key, using rule-based fallback text).
 
-```dotenv
-GEMINI_API_KEY=your-key-here
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_TIMEOUT_SECONDS=20
+### Frontend
+
+```bash
+cd frontend
+npm install
 ```
 
-No key configured? Reports still generate — Inspect buttons just show the rule-based explanation.
+`vite.config.js` proxies `/api/*` to `http://127.0.0.1:8000` by default, so no `.env` is needed for local dev.
 
----
+Supported input formats: `.xlsx` / `.xlsm`, `.xls`, `.csv`.
 
-## Run the pipeline
+## Running it
 
-### Phase 1 only
-
+**CLI, Phase 1 only:**
 ```bash
 python main.py "path/to/your_file.xlsx"
-python main.py "path/to/your_file.xlsx" --sheet "Sheet Name"
 ```
 
-### Phase 2 — AI-enhanced report
-
+**CLI, Phase 2 AI-enhanced report:**
 ```bash
 python generate_report_phase2.py "path/to/your_file.xlsx"
-python generate_report_phase2.py "path/to/your_file.xlsx" --sheet "Sheet Name"
-python generate_report_phase2.py "path/to/your_file.csv" --out my_reports
-python generate_report_phase2.py "path/to/your_file.xlsx" --gemini-api-key "your-key-here"
 ```
+Produces the Phase 1 PDF/HTML plus a `..._ai.html` report with an Inspect button on every check.
 
-Produces the Phase 1 PDF/HTML plus a Phase 2 `..._ai.html` report with an Inspect button on every check.
-
-> Open generated reports via a local server, not by double-clicking (browsers block scripts on `file://` pages):
+> Open generated reports via a local server, not by double-clicking — browsers block scripts on `file://` pages:
 > ```bash
 > cd reports && python -m http.server 8000
-> # open http://localhost:8000/your_report.html
 > ```
 
-Supported formats: `.xlsx`/`.xlsm`, `.xls`, `.csv`.
-
----
-
-## Project layout
-
-```
-backend/
-  config/                # Phase 1 thresholds, rubric weights, domain rules
-  engine/                 # ingestion, checks, PII, standardization, scoring
-  phase2/
-    ai_explainer.py       # Gemini calls, prompts, retry, fallback text
-    enhanced_report.py    # injects Inspect buttons into the HTML report
-    database/             # SQLAlchemy models + sessions
-    schemas/               # Pydantic models
-    rules.py              # per-client rule resolution
-    logging_setup.py      # structured JSONL logs
-config/clients/           # per-client rule overrides
-main.py                   # Phase 1 CLI entrypoint
-generate_report_phase2.py # Phase 2 CLI entrypoint
-notebooks/                 # task walkthroughs
-tests/                     # pytest suite
-plan.md / PHASE2_PLAN.md   # technical plans
+**Full stack (API + web console):**
+```bash
+uvicorn backend.app:app --reload      # API docs at /docs
+cd frontend && npm run dev             # console
 ```
 
----
-
-## Tests
+## Testing
 
 ```bash
-python -m pytest tests -q
-pytest tests/test_main_pipeline.py -v          # Phase 1
-pytest tests/test_phase2_m1_setup.py -v         # Phase 2 foundations
-pytest tests/test_phase2_m2_additions.py -v     # Phase 2 AI layer
+python -m pytest tests -q     # backend suite
+cd frontend && npm test        # frontend component tests
 ```
 
----
+## Future improvements
 
-## Design notes (for review)
-
-**Phase 1**
-- Checks fail soft (`status="error"`) instead of crashing the run.
-- Role-skipped columns (e.g. outliers on identifiers) are excluded from pass-ratios so scores aren't artificially inflated.
-- A sheet with no detectable header is skipped with a message rather than aborting the whole file.
-
-**Phase 2**
-- `phase2/` only ever calls **into** `engine/`, never the other way — Phase 1 works standalone even without Phase 2 installed.
-- `ai_explainer.py` never raises: any failure (missing key, network, rate limit, bad response) resolves to the same rule-based fallback built from Phase 1's own data.
-- AI responses follow a fixed structure (`WHAT'S WRONG` / `WHY IT MATTERS` / `WHAT TO DO`); anything that doesn't match renders as plain text instead of breaking.
-- Every AI call is logged with its outcome, so AI availability is auditable after the fact.
-- `enhanced_report.py` never modifies Phase 1's report generator — it injects into the output, so worst case is still a complete, valid Phase 1 report.
+- **Recommendation engine** — turn findings into a prioritized remediation catalog with projected score improvements, instead of leaving prioritization to the reader.
+- **Hardening & deployment** — Docker packaging, production security review, and a proper deployment checklist so this can run outside a dev machine.
+- **Async job queue** — move run execution off a background thread and onto a real queue (e.g. RQ/Celery) for heavier concurrent load.
+- **Broader file support** — JSON and database-source ingestion alongside Excel/CSV.
+  

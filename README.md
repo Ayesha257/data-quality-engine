@@ -4,8 +4,6 @@ A deterministic data-quality pipeline for messy client Excel/CSV files, wrapped 
 
 Every finding — what's wrong, how severe it is, what to do about it — is computed by a rule-based Phase 1 engine. Nothing downstream (AI, API, frontend) is ever allowed to change a decision; it can only explain, serve, or display one.
 
-**Status:** Phase 1 complete · Phase 2 — M1, M2, M3, M4, M6, M9 complete
-
 ---
 
 ## Purpose

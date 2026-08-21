@@ -121,24 +121,7 @@ npm install
 
 Supported input formats: `.xlsx` / `.xlsm`, `.xls`, `.csv`.
 
-## Running it
-
-**CLI, Phase 1 only:**
-```bash
-python main.py "path/to/your_file.xlsx"
-```
-
-**CLI, Phase 2 AI-enhanced report:**
-```bash
-python generate_report_phase2.py "path/to/your_file.xlsx"
-```
-Produces the Phase 1 PDF/HTML plus a `..._ai.html` report with an Inspect button on every check.
-
-> Open generated reports via a local server, not by double-clicking — browsers block scripts on `file://` pages:
-> ```bash
-> cd reports && python -m http.server 8000
-> ```
-
+## Running it 
 **Full stack (API + web console):**
 ```bash
 uvicorn backend.app:app --reload      # API docs at /docs

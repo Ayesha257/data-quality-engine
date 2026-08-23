@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "description": "Regulatory compliance rule configuration. Each top-level key under 'regulations' is a regulation; each entry under 'rules' names a data pattern the regulation cares about, with its detection method and confidence level. method: regex_checksum (regex shape + mathematical checksum validation, high-confidence positive match) | column_keyword (fuzzy column-*name* match only, no value inspection -- a guess, low confidence) | schema_check (structural presence/absence check over column names) | regex (pattern/format match, reusing existing shared detection logic where noted). confidence: high (validated / structurally confirmed) | low (heuristic name-based guess that should be surfaced for human review, not treated as a confirmed finding).",
+  "regulations": {
+    "PCI_DSS": {
+      "_note": "Not populated here. Defined on feature/compliance-config-pci-dss (pci_dss_detectors.py), which was not present in the snapshot this file was generated from. Merge that branch's PCI_DSS section in alongside GLBA/SOX below -- do not hand-author it here."
+    },
+    "GLBA": {
+      "description": "Gramm-Leach-Bliley Act -- financial institution customer data.",
+      "rules": {
+        "routing_number": {
+          "method": "regex_checksum",
+          "confidence": "high",
+          "detector": "backend.compliance.glba_detectors.detect_routing_number",
+          "description": "9-digit ABA routing number: regex shape + weighted (3,7,1) mod-10 checksum."
+        },
+        "bank_account_number": {
+          "method": "column_keyword",
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "description": "Column name suggests a bank account number field. Name-only guess -- not a confirmed value-level finding."
+        },
+        "loan_application_data": {
+          "method": "column_keyword",
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "description": "Column name suggests loan application data (amount, term, type, principal). Name-only guess."
+        },
+        "credit_history_data": {
+          "method": "column_keyword",
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "description": "Column name suggests credit history / credit score data. Name-only guess."
+        },
+        "tax_return_data": {
+          "method": "column_keyword",
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "description": "Column name suggests tax return data (AGI, W2/1099 income, filing status). Name-only guess."
+        }
+      }
+    },
+    "SOX": {
+      "description": "Sarbanes-Oxley Act -- financial reporting controls and audit trail integrity.",
+      "rules": {
+        "audit_trail_headers": {
+          "method": "schema_check",
+          "confidence": "high",
+          "detector": "backend.engine.checks.schema_quality.check_audit_trail_completeness",
+          "description": "Structural check that creation, approval, and modification audit-trail columns are all present."
+        },
+        "transaction_timestamp": {
+          "method": "regex",
+          "confidence": "high",
+          "detector": "backend.engine.column_classifier.is_datetime_column",
+          "description": "Transaction timestamp presence. Reuses the existing shared datetime-column detection logic (column_classifier.is_datetime_column) -- no separate regex/date-parsing logic is implemented for this rule."
+        }
+      }
+    }
+  }
+}

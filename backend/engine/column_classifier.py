@@ -205,6 +205,14 @@ def _is_date_column(series: pd.Series, col_name: str | None = None) -> bool:
     return ratio >= threshold
 
 
+def is_datetime_column(series: pd.Series, col_name: str | None = None) -> bool:
+    """True if series contains datetime values or timestamps.
+
+    Reused by SOX transaction_timestamp compliance rule.
+    """
+    return _is_date_column(series, col_name)
+
+
 def _looks_like_code(value: object) -> bool:
     s = str(value).strip()
     return bool(s and len(s) <= 20 and s.count(" ") <= 1)

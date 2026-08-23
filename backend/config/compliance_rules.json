@@ -1,0 +1,243 @@
+{
+  "version": 1,
+  "description": "Multi-framework compliance detection rules for the Data Quality Engine. Each framework maps to a list of field-level detection rules consumed by backend/compliance/*_detectors.py. This file is additive to the existing HIPAA module (backend/engine/compliance/) and the PII detection module (backend/engine/pii/) and does not replace or alter either.",
+  "frameworks": {
+    "PCI_DSS": {
+      "full_name": "Payment Card Industry Data Security Standard",
+      "description": "Detects PCI DSS-scoped cardholder data and sensitive authentication data (Primary Account Number, expiry date, CVV) in tabular data.",
+      "rules": [
+        {
+          "id": "pci_pan",
+          "field_name": "PAN",
+          "display_name": "Primary Account Number",
+          "detection_type": "regex_checksum",
+          "pattern": "(?<!\\d)(?:[0-9][ -]?){13,19}(?!\\d)",
+          "confidence": "high",
+          "column_keywords": [
+            "pan",
+            "card_number",
+            "cardnumber",
+            "card_no",
+            "cardno",
+            "credit_card",
+            "creditcard",
+            "debit_card",
+            "debitcard",
+            "cc_number",
+            "ccnumber",
+            "account_number"
+          ],
+          "notes": "13-19 digit sequence (optionally grouped with spaces/dashes) that also passes the Luhn (mod 10) checksum. Value-level detection; not gated on column name. Only the last 4 digits should ever be surfaced (masked value)."
+        },
+        {
+          "id": "pci_card_expiry",
+          "field_name": "card_expiry",
+          "display_name": "Card Expiration Date",
+          "detection_type": "regex",
+          "pattern": "^\\s*(0[1-9]|1[0-2])\\s*[/\\-]\\s*(\\d{2}|\\d{4})\\s*$",
+          "confidence": "medium",
+          "column_keywords": [
+            "expiry",
+            "expiration",
+            "exp_date",
+            "expdate",
+            "exp_dt",
+            "expdt",
+            "valid_thru",
+            "validthru",
+            "valid_through",
+            "card_exp",
+            "cardexp",
+            "cc_exp",
+            "ccexp"
+          ],
+          "notes": "MM/YY (or MM/YYYY) formatted value. Only flagged when the column name fuzzy-matches an expiry-related keyword; value alone is not sufficient since MM/YY-shaped strings are common outside the cardholder-data context."
+        },
+        {
+          "id": "pci_cvv",
+          "field_name": "cvv",
+          "display_name": "Card Verification Value",
+          "detection_type": "column_keyword",
+          "keywords": [
+            "cvv",
+            "cvv2",
+            "cvc",
+            "cvc2",
+            "cvn",
+            "csc",
+            "security_code",
+            "securitycode",
+            "card_verification_value",
+            "card_verification_code",
+            "verification_code"
+          ],
+          "confidence": "low",
+          "notes": "Column-name-only match. Per PCI DSS Requirement 3.2, CVV/CVC must never be stored after authorization, so this rule flags the column itself as a violation risk rather than validating individual values."
+        }
+      ]
+    },
+    "GLBA": {
+      "full_name": "Gramm-Leach-Bliley Act",
+      "description": "Financial institution customer nonpublic personal information (NPI) detection rules covering routing numbers, account numbers, credit history, loan application data, and tax return data.",
+      "rules": [
+        {
+          "id": "glba_routing_number",
+          "field_name": "routing_number",
+          "display_name": "ABA Bank Routing Number",
+          "detection_type": "regex_checksum",
+          "pattern": "^\\d{9}$",
+          "confidence": "high",
+          "detector": "backend.compliance.glba_detectors.detect_routing_number",
+          "column_keywords": [
+            "routing_number",
+            "routing_no",
+            "aba_routing",
+            "aba_number",
+            "routing_num",
+            "transit_number"
+          ],
+          "notes": "9-digit ABA routing number: regex shape + weighted (3,7,1) mod-10 checksum validation. Value-level detection."
+        },
+        {
+          "id": "glba_bank_account_number",
+          "field_name": "bank_account_number",
+          "display_name": "Bank Account Number",
+          "detection_type": "column_keyword",
+          "keywords": [
+            "account number",
+            "acct no",
+            "acct number",
+            "bank account",
+            "bank acct",
+            "account num",
+            "routing account",
+            "checking account",
+            "savings account",
+            "iban"
+          ],
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "notes": "Column name suggests a bank account number field. Name-only heuristic — not a confirmed value-level finding."
+        },
+        {
+          "id": "glba_loan_application_data",
+          "field_name": "loan_application_data",
+          "display_name": "Loan Application Data",
+          "detection_type": "column_keyword",
+          "keywords": [
+            "loan amount",
+            "loan amt",
+            "loan application",
+            "loan app",
+            "principal amount",
+            "loan term",
+            "loan type",
+            "mortgage amount",
+            "borrower amount",
+            "application amount"
+          ],
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "notes": "Column name suggests loan application data (amount, term, type, principal). Name-only heuristic."
+        },
+        {
+          "id": "glba_credit_history_data",
+          "field_name": "credit_history_data",
+          "display_name": "Credit History Data",
+          "detection_type": "column_keyword",
+          "keywords": [
+            "credit score",
+            "credit history",
+            "fico score",
+            "credit report",
+            "credit rating",
+            "credit bureau"
+          ],
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "notes": "Column name suggests credit history / credit score data. Name-only heuristic."
+        },
+        {
+          "id": "glba_tax_return_data",
+          "field_name": "tax_return_data",
+          "display_name": "Tax Return Data",
+          "detection_type": "column_keyword",
+          "keywords": [
+            "tax return",
+            "tax id",
+            "agi",
+            "adjusted gross income",
+            "w2 income",
+            "1099 income",
+            "tax filing",
+            "tax document",
+            "filing status"
+          ],
+          "confidence": "low",
+          "detector": "backend.compliance.glba_detectors.classify_glba_keyword_columns",
+          "notes": "Column name suggests tax return data (AGI, W2/1099 income, filing status). Name-only heuristic."
+        }
+      ]
+    },
+    "SOX": {
+      "full_name": "Sarbanes-Oxley Act",
+      "description": "Financial reporting controls and audit trail integrity verification.",
+      "rules": [
+        {
+          "id": "sox_audit_trail_headers",
+          "field_name": "audit_trail_headers",
+          "display_name": "Audit Trail Header Completeness",
+          "detection_type": "schema_check",
+          "confidence": "high",
+          "detector": "backend.engine.checks.schema_quality.check_audit_trail_completeness",
+          "categories": {
+            "creation": [
+              "created_by",
+              "created_at",
+              "create_date",
+              "creation_date",
+              "creator",
+              "entered_by"
+            ],
+            "approval": [
+              "approved_by",
+              "reviewed_by",
+              "approved_at",
+              "approver",
+              "reviewer",
+              "authorized_by"
+            ],
+            "modification": [
+              "modified_at",
+              "updated_at",
+              "modified_by",
+              "updated_by",
+              "last_modified_at",
+              "last_updated_at"
+            ]
+          },
+          "notes": "Structural check that creation, approval, and modification audit-trail columns are all present in tabular data."
+        },
+        {
+          "id": "sox_transaction_timestamp",
+          "field_name": "transaction_timestamp",
+          "display_name": "Transaction Timestamp Presence",
+          "detection_type": "regex",
+          "confidence": "high",
+          "detector": "backend.engine.column_classifier.is_datetime_column",
+          "notes": "Transaction timestamp presence. Reuses the existing shared datetime-column detection logic (column_classifier.is_datetime_column) — no separate regex/date-parsing logic is implemented for this rule."
+        }
+      ]
+    },
+    "GDPR": {
+      "full_name": "General Data Protection Regulation",
+      "description": "Stub — rules to be added in a later phase.",
+      "rules": []
+    },
+    "CCPA": {
+      "full_name": "California Consumer Privacy Act",
+      "description": "Stub — rules to be added in a later phase.",
+      "rules": []
+    }
+  }
+}

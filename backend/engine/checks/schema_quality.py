@@ -10,6 +10,7 @@ the AI agent, any code that keys off column names):
     columns after a pivot copy-paste -- seen in the real Easby files)
   - vague/generic names ("Column1", "Field2", "Data", "Value", "X", "A")
   - empty or whitespace-only names
+  - SOX audit-trail completeness (check_audit_trail_completeness)
 
 This does not duplicate column_classifier.py: classify_columns() looks at
 *values* to decide a column's role (identifier/measurement/...); this check
@@ -19,9 +20,12 @@ looks only at the *name* itself, independent of role.
 from __future__ import annotations
 
 import re
+from typing import Any, Iterable
 
 import pandas as pd
 
+from backend.compliance.fuzzy_columns import find_matching_columns
+from backend.engine.compliance.compliance_status import sanitize_details
 from backend.engine.models import CheckResult
 
 # pandas' own placeholder pattern ("Unnamed: 0") plus the lowercase variant
@@ -146,3 +150,171 @@ def check_schema_quality(df: pd.DataFrame) -> list[CheckResult]:
                 dimension="schema_quality",
             )
         ]
+
+
+# ---------------------------------------------------------------------------
+# SOX Audit Trail Schema Check
+# ---------------------------------------------------------------------------
+
+AUDIT_TRAIL_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "creation": (
+        "created by",
+        "created at",
+        "create date",
+        "created date",
+        "created time",
+        "creation date",
+        "creation time",
+        "creator",
+        "created on",
+        "create time",
+        "created dt",
+        "create dt",
+        "entered by",
+        "entered at",
+        "record created at",
+        "record created by",
+        "inserted at",
+        "inserted by",
+        "creation timestamp",
+        "createdby",
+        "createdat",
+    ),
+    "approval": (
+        "approved by",
+        "reviewed by",
+        "approved at",
+        "approved date",
+        "approver",
+        "reviewer",
+        "approval date",
+        "approval status",
+        "reviewed at",
+        "reviewed date",
+        "authorized by",
+        "sign off by",
+        "signed off by",
+        "audited by",
+        "approvedby",
+        "reviewedby",
+        "appr by",
+        "approver id",
+    ),
+    "modification": (
+        "modified at",
+        "updated at",
+        "modified by",
+        "updated by",
+        "last modified at",
+        "last updated at",
+        "modified date",
+        "updated date",
+        "last modified date",
+        "last updated date",
+        "modification date",
+        "update time",
+        "modified time",
+        "change date",
+        "changed by",
+        "changed at",
+        "mod dt",
+        "upd date",
+        "last modified",
+        "last updated",
+        "modifiedby",
+        "updatedby",
+        "modifiedat",
+        "updatedat",
+    ),
+}
+
+
+def classify_audit_trail_columns(
+    column_names: Iterable[Any] | pd.DataFrame,
+) -> dict[str, list[str]]:
+    """Fuzzy-match column names against the three SOX audit trail categories:
+
+    - creation (created_by, created_at, create_date, etc.)
+    - approval (approved_by, reviewed_by, approved_at, etc.)
+    - modification (modified_at, updated_at, modified_by, etc.)
+
+    Returns {category: [matching column names]}.
+    """
+    if isinstance(column_names, pd.DataFrame):
+        names = list(column_names.columns)
+    elif column_names is not None:
+        names = [str(c) for c in column_names]
+    else:
+        names = []
+
+    return {
+        category: find_matching_columns(names, keywords)
+        for category, keywords in AUDIT_TRAIL_CATEGORIES.items()
+    }
+
+
+def check_audit_trail_completeness(
+    column_names: Iterable[Any] | pd.DataFrame,
+) -> CheckResult:
+    """SOX Audit Trail Header Completeness Check -> Schema Quality dimension.
+
+    Evaluates the presence of audit-trail headers across 3 core categories:
+    1. Creation (e.g. created_by, created_at)
+    2. Approval (e.g. approved_by, reviewed_by)
+    3. Modification (e.g. modified_at, updated_at)
+
+    Scores based on how many of the 3 categories have matching columns:
+    - 3/3 matched: quality_ratio = 1.0 (Full Coverage, status="passed")
+    - 2/3 matched: quality_ratio = 0.667 (Partial Coverage, status="failed")
+    - 1/3 matched: quality_ratio = 0.333 (Partial Coverage, status="failed")
+    - 0/3 matched: quality_ratio = 0.0 (Zero Coverage, status="failed")
+
+    Confidence: "high" (schema-level check).
+    """
+    try:
+        matches = classify_audit_trail_columns(column_names)
+        matched_categories = [cat for cat, cols in matches.items() if cols]
+        missing_categories = [cat for cat, cols in matches.items() if not cols]
+        matched_count = len(matched_categories)
+        total_categories = len(AUDIT_TRAIL_CATEGORIES)
+
+        quality_ratio = round(matched_count / float(total_categories), 4)
+        issues_found = total_categories - matched_count
+        status = "passed" if issues_found == 0 else "failed"
+
+        details = sanitize_details(
+            {
+                "rule": "audit_trail_headers",
+                "regulation": "SOX",
+                "confidence": "high",
+                "method": "schema_check",
+                "score": quality_ratio,
+                "coverage": f"{matched_count}/{total_categories}",
+                "matched_categories_count": matched_count,
+                "total_categories_count": total_categories,
+                "categories_checked": list(AUDIT_TRAIL_CATEGORIES.keys()),
+                "matched_categories": matched_categories,
+                "missing_categories": missing_categories,
+                "category_matches": matches,
+            }
+        )
+
+        return CheckResult(
+            check_name="audit_trail_completeness",
+            status=status,
+            column=None,
+            issues_found=issues_found,
+            dimension="schema_quality",
+            quality_ratio=quality_ratio,
+            details=details,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            check_name="audit_trail_completeness",
+            status="error",
+            column=None,
+            issues_found=0,
+            dimension="schema_quality",
+            quality_ratio=0.0,
+            details=sanitize_details({"error": str(exc)}),
+        )

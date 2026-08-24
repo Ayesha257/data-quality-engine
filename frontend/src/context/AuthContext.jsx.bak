@@ -1,0 +1,71 @@
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { api, STORAGE_KEYS } from "../api/client.js";
+
+const AuthContext = createContext(null);
+
+/**
+ * The backend authenticates with a static `X-API-Key` header bound to one
+ * client_id (see phase2/api/auth.py) — there's no username/password/session
+ * concept on the server today. This context is the frontend's login layer
+ * on top of that: it holds { apiKey, clientId } in memory + localStorage
+ * (so a refresh doesn't log you out) and verifies the key against a real
+ * endpoint before calling the session "active".
+ */
+export function AuthProvider({ children }) {
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEYS.apiKey) || "");
+  const [clientId, setClientId] = useState(() => localStorage.getItem(STORAGE_KEYS.clientId) || "");
+  const [status, setStatus] = useState("idle"); // idle | checking | ready
+  const [error, setError] = useState(null);
+
+  const isAuthenticated = Boolean(apiKey && clientId);
+
+  const login = useCallback(async ({ apiKey: key, clientId: id }) => {
+    setError(null);
+    setStatus("checking");
+    // Stash first so the interceptor picks up the header for this call.
+    localStorage.setItem(STORAGE_KEYS.apiKey, key);
+    localStorage.setItem(STORAGE_KEYS.clientId, id);
+    try {
+      await api.verifyKey(id);
+      setApiKey(key);
+      setClientId(id);
+      setStatus("ready");
+      return true;
+    } catch (e) {
+      localStorage.removeItem(STORAGE_KEYS.apiKey);
+      localStorage.removeItem(STORAGE_KEYS.clientId);
+      setStatus("idle");
+      setError(e.message);
+      return false;
+    }
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEYS.apiKey);
+    localStorage.removeItem(STORAGE_KEYS.clientId);
+    setApiKey("");
+    setClientId("");
+    setStatus("idle");
+  }, []);
+
+  // On first load, if we already have stored credentials, trust them
+  // optimistically (pages themselves will surface a 401 if the key was
+  // revoked server-side) rather than blocking the whole app on a check.
+  useEffect(() => {
+    if (apiKey && clientId) setStatus("ready");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <AuthContext.Provider
+      value={{ apiKey, clientId, isAuthenticated, status, error, login, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.schema_quality import check_schema_quality
+from backend.engine.checks.schema_quality import check_schema_quality
 
 
 def test_clean_names_all_pass():

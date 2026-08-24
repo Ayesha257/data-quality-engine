@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.pii.detect_pii import (
+from backend.engine.pii.detect_pii import (
     TYPE_ADDRESS,
     TYPE_BANK_ACCOUNT,
     TYPE_CARD,
@@ -26,7 +26,7 @@ from data_quality_engine.engine.pii.detect_pii import (
     detect_pii_in_series,
     resolve_overlaps,
 )
-from data_quality_engine.engine.pii.mask_pii import mask_pii
+from backend.engine.pii.mask_pii import mask_pii
 
 
 def test_detect_email_and_phone():
@@ -152,3 +152,64 @@ def test_unrelated_column_not_flagged_as_password():
     s = pd.Series(["abc123", "xyz789"], name="product_code")
     summary = detect_pii_in_series(s)
     assert TYPE_PASSWORD not in summary["type_counts"]
+
+
+def test_datetime_column_not_flagged_as_ip_address():
+    s = pd.Series(
+        pd.to_datetime(["2020-01-06", "2020-01-07", "2021-03-15"]),
+        name="Order Date",
+    )
+    summary = detect_pii_in_series(s)
+    assert TYPE_IP_ADDRESS not in summary["type_counts"]
+    assert summary["rows_with_pii"] == 0
+
+
+def test_structured_business_code_column_not_flagged_phone_or_mobile():
+    s = pd.Series(
+        [
+            "SON-2001DEL010000022",
+            "SON-2001CUS010000001",
+            "SON-2001DELHK0000003",
+            "SON-2001DEL010000032",
+            "SON-2001DEL010000027",
+        ],
+        name="Order Number",
+    )
+    summary = detect_pii_in_series(s)
+    assert TYPE_PHONE not in summary["type_counts"]
+    assert TYPE_MOBILE not in summary["type_counts"]
+    assert TYPE_IP_ADDRESS not in summary["type_counts"]
+
+
+def test_telephone_column_with_real_numbers_still_flagged_phone():
+    s = pd.Series(
+        ["01748850555", "01582723633", "01423810810"],
+        name="Telephone",
+    )
+    summary = detect_pii_in_series(s)
+    assert summary["rows_with_pii"] >= 1
+    assert TYPE_PHONE in summary["type_counts"] or TYPE_MOBILE in summary["type_counts"]
+
+
+def test_company_reg_column_not_flagged_as_phone_or_card():
+    """UK company registration numbers must not match phone/mobile/card regex."""
+    s = pd.Series(
+        [
+            "01537952",
+            "04617032",
+            "03426367",
+            "6197756300009161",
+            "75132218100015",
+        ],
+        name="Company Reg No.",
+    )
+    summary = detect_pii_in_series(s)
+    assert summary["rows_with_pii"] == 0
+    assert summary["type_counts"] == {}
+
+
+def test_vat_and_eori_columns_skip_contact_regex_scan():
+    for col_name in ("Customer VAT Number", "Customer EORI", "Ship Address VAT Number"):
+        s = pd.Series(["GB123456789", "01537952"], name=col_name)
+        summary = detect_pii_in_series(s)
+        assert summary["rows_with_pii"] == 0, col_name

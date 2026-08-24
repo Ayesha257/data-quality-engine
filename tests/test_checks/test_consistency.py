@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.checks.consistency import (
+from backend.engine.checks.consistency import (
     check_consistency,
     check_consistency_frame,
 )
-from data_quality_engine.engine.column_classifier import (
+from backend.engine.column_classifier import (
     ROLE_CATEGORICAL,
     ROLE_DATE,
     ROLE_IDENTIFIER,

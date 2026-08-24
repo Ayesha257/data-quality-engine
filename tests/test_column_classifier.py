@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_quality_engine.engine.column_classifier import (
+from backend.engine.column_classifier import (
     ROLE_CATEGORICAL,
     ROLE_DATE,
     ROLE_FREE_TEXT,
@@ -13,7 +13,7 @@ from data_quality_engine.engine.column_classifier import (
     ROLE_PII,
     classify_columns,
 )
-from data_quality_engine.engine.checks.outliers import detect_outliers_frame
+from backend.engine.checks.outliers import detect_outliers_frame
 
 
 def _erp_like_frame() -> pd.DataFrame:

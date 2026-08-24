@@ -48,7 +48,7 @@ Only tools that were actually tested and chosen are listed as **primary**. Where
 ## 3. Project Structure
 
 ```
-data_quality_engine/                 # installable Python package
+backend/                 # installable Python package
 ├── __init__.py
 ├── main.py                          # CLI entrypoint — runs the full pipeline
 ├── config/

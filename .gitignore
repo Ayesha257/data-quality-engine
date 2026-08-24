@@ -191,3 +191,11 @@ _probe_*.py
 _meta_out.txt
 _probe_out.txt
 OneDrive_1_26-01-2026 - latest data set/
+
+phase2_dev.db
+*.db
+config/clients/
+*.bak
+*.db-shm
+*.db-wal
+uploads/

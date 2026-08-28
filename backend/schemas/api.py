@@ -65,6 +65,31 @@ class RunConfirmResponse(BaseModel):
     status: RunStatus
 
 
+class ComplianceDecision(BaseModel):
+    column_name: str
+    decision: str | None = None
+    confirmed: bool | None = None
+    accept: bool | None = None
+    guessed_field: str | None = None
+    regulation: str | None = None
+    confidence: str | None = None
+
+
+class ComplianceConfirmRequest(BaseModel):
+    """Body for POST /v1/runs/{run_id}/compliance-confirm -- answers
+    COMPLIANCE_COLUMN_CONFIRM checkpoints."""
+    decisions: list[ComplianceDecision] | list[dict[str, Any]] | dict[str, Any] = Field(
+        default_factory=list,
+        description="List of confirm/reject decisions per flagged column.",
+    )
+
+
+class ComplianceConfirmResponse(BaseModel):
+    run_id: str
+    status: RunStatus
+    resolved_count: int = 0
+
+
 class SheetResult(BaseModel):
     """One entry of run_pipeline()'s per-sheet return value (main.py),
     passed straight through -- see its docstring for field meanings."""
@@ -83,7 +108,11 @@ class SheetResult(BaseModel):
     report_path: str | None = None
     pdf_report_path: str | None = None
     compliance_report_path: str | None = None
+    compliance_modules: list[str] = Field(default_factory=list)
+    compliance_scans: dict[str, Any] | None = None
     error: str | None = None
+
+    model_config = ConfigDict(extra="allow")
 
 
 class DimensionScore(BaseModel):
@@ -113,7 +142,10 @@ class RunResultsResponse(BaseModel):
     cols_processed: int | None = None
     dimension_scores: dict[str, DimensionScore] | None = None
     sheets: list[SheetResult] = Field(default_factory=list)
+    compliance_modules: list[str] = Field(default_factory=list)
     error_message: str | None = None
+
+    model_config = ConfigDict(extra="allow")
 
 
 class ErrorResponse(BaseModel):
@@ -177,6 +209,7 @@ class RunSummary(BaseModel):
     started_at: datetime
     completed_at: datetime | None = None
     has_compliance_report: bool = False
+    compliance_modules: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

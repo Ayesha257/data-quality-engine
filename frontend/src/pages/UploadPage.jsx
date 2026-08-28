@@ -15,6 +15,11 @@ export default function UploadPage() {
   const [geminiKey, setGeminiKey] = useState("");
   const [interactive, setInteractive] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [runCompliance, setRunCompliance] = useState(false);
+  const [checkHipaa, setCheckHipaa] = useState(false);
+  const [checkPci, setCheckPci] = useState(false);
+  const [checkGlba, setCheckGlba] = useState(false);
+  const [checkSox, setCheckSox] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -33,6 +38,13 @@ export default function UploadPage() {
     }
     setSubmitting(true);
     try {
+      const complianceModules = [];
+      if (runCompliance) {
+        if (checkHipaa) complianceModules.push("HIPAA");
+        if (checkPci) complianceModules.push("PCI_DSS");
+        if (checkGlba) complianceModules.push("GLBA");
+        if (checkSox) complianceModules.push("SOX");
+      }
       const res = await api.uploadFile({
         clientId,
         file,
@@ -42,6 +54,8 @@ export default function UploadPage() {
         writeReport: true,
         geminiApiKey: geminiKey || undefined,
         interactive,
+        includeHipaa: runCompliance && checkHipaa,
+        complianceModules,
       });
       navigate(`/runs/${res.run_id}`);
     } catch (e2) {
@@ -120,6 +134,103 @@ export default function UploadPage() {
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
                 />
+              </div>
+              <div className="sm:col-span-2 space-y-3 border-t border-ink-700 pt-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={runCompliance}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setRunCompliance(on);
+                      if (!on) {
+                        setCheckHipaa(false);
+                        setCheckPci(false);
+                        setCheckGlba(false);
+                        setCheckSox(false);
+                      }
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                  />
+                  <span className="text-sm text-mist-200">
+                    Run Compliance Checks
+                    <span className="block text-xs text-mist-400 mt-0.5">
+                      Off by default. When off, no HIPAA or financial detectors run.
+                    </span>
+                  </span>
+                </label>
+                {runCompliance && (
+                  <div className="pl-7 space-y-4">
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wider text-mist-400 mb-2">
+                        Health Compliance
+                      </p>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checkHipaa}
+                          onChange={(e) => setCheckHipaa(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                        />
+                        <span className="text-sm text-mist-300">
+                          HIPAA
+                          <span className="block text-xs text-mist-400 mt-0.5">
+                            Looks for protected health information such as names and phone numbers.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wider text-mist-400 mb-2">
+                        Financial Compliance
+                      </p>
+                      <div className="space-y-2">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checkPci}
+                            onChange={(e) => setCheckPci(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                          />
+                          <span className="text-sm text-mist-300">
+                            PCI-DSS
+                            <span className="block text-xs text-mist-400 mt-0.5">
+                              Looks for card numbers, expiry dates, and CVV-like columns.
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checkGlba}
+                            onChange={(e) => setCheckGlba(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                          />
+                          <span className="text-sm text-mist-300">
+                            GLBA
+                            <span className="block text-xs text-mist-400 mt-0.5">
+                              Looks for bank routing numbers and personal financial fields.
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checkSox}
+                            onChange={(e) => setCheckSox(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                          />
+                          <span className="text-sm text-mist-300">
+                            SOX
+                            <span className="block text-xs text-mist-400 mt-0.5">
+                              Checks audit-trail columns and transaction timestamps.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

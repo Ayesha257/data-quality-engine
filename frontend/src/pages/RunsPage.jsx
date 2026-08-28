@@ -3,11 +3,13 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
 import StatusBadge from "../components/StatusBadge.jsx";
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal.jsx";
 
 export default function RunsPage() {
   const { clientId } = useAuth();
   const [runs, setRuns] = useState(null);
   const [error, setError] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const load = () => {
     api
@@ -18,14 +20,14 @@ export default function RunsPage() {
       .catch((e) => setError(e.message));
   };
 
-  const handleDelete = async (runId, fileName) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete the scan for "${fileName}"? This will permanently remove its reports and data.`
-      )
-    ) {
-      return;
-    }
+  const handleDelete = (runId, fileName) => {
+    setPendingDelete({ runId, fileName });
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { runId } = pendingDelete;
+    setPendingDelete(null);
     try {
       await api.deleteRun(runId);
       setRuns((prev) => (prev ? prev.filter((r) => r.run_id !== runId) : []));
@@ -119,6 +121,16 @@ export default function RunsPage() {
           </table>
         </div>
       )}
+      <ConfirmDeleteModal
+        open={Boolean(pendingDelete)}
+        message={
+          pendingDelete
+            ? `This will permanently remove the scan for "${pendingDelete.fileName}" and its reports.`
+            : ""
+        }
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

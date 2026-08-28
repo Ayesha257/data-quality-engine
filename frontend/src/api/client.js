@@ -12,7 +12,12 @@ export const STORAGE_KEYS = {
   fullName: "dqe_full_name",
 };
 
-const client = axios.create({ baseURL: BASE_URL });
+const client = axios.create({
+  baseURL: BASE_URL,
+  paramsSerializer: {
+    indexes: null,
+  },
+});
 
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem(STORAGE_KEYS.token);
@@ -78,6 +83,8 @@ export const api = {
     writeReport,
     geminiApiKey,
     interactive,
+    includeHipaa,
+    complianceModules,
   }) => {
     const form = new FormData();
     form.append("file", file);
@@ -87,6 +94,10 @@ export const api = {
     if (dateColumn) params.date_column = dateColumn;
     if (geminiApiKey) params.gemini_api_key = geminiApiKey;
     if (interactive) params.interactive = true;
+    if (includeHipaa) params.include_hipaa = true;
+    if (complianceModules && complianceModules.length) {
+      params.compliance_modules = complianceModules;
+    }
     return client
       .post("/v1/files/upload", form, {
         params,
@@ -147,15 +158,26 @@ export const api = {
       .then((r) => URL.createObjectURL(r.data));
   },
 
-  // Standalone Compliance Report -- separate from the main report above.
-  // Same authenticated-blob pattern, just a different endpoint
-  // (GET /v1/runs/{run_id}/compliance-report).
-  fetchComplianceReportBlobUrl: (runId, sheetName) => {
-    const params = sheetName ? { sheet_name: sheetName } : {};
+  // Standalone Compliance Report -- supports regulation parameter
+  // (HIPAA, PCI_DSS, GLBA, SOX).
+  fetchComplianceReportBlobUrl: (runId, sheetName, regulation) => {
+    const params = {};
+    if (sheetName) params.sheet_name = sheetName;
+    if (regulation) params.regulation = regulation;
     return client
       .get(`/v1/runs/${runId}/compliance-report`, { params, responseType: "blob" })
       .then((r) => URL.createObjectURL(r.data));
   },
+
+  // Answers low-confidence compliance column confirmation checkpoints
+  confirmCompliance: (runId, decisions) =>
+    client
+      .post(`/v1/runs/${runId}/compliance-confirm`, { decisions })
+      .then((r) => r.data),
+
+  // Fetches pending compliance confirmations for a run
+  getPendingComplianceConfirmations: (runId) =>
+    client.get(`/v1/runs/${runId}/compliance-confirmations`).then((r) => r.data),
 
   listRuns: (clientId) =>
     client.get(`/v1/clients/${encodeURIComponent(clientId)}/runs`).then((r) => r.data.runs),

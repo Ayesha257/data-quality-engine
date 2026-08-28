@@ -101,32 +101,63 @@ def test_main_report_includes_hipaa_section_when_include_hipaa_true(tmp_path, mo
 
 
 # ---------------------------------------------------------------------------
-# (b) standalone Compliance Report is written and correct for a completed
-# run, independent of include_hipaa
+# (b) standalone Compliance Report generation, independent of include_hipaa
 # ---------------------------------------------------------------------------
 
-def test_standalone_compliance_report_written_regardless_of_include_hipaa(tmp_path, monkeypatch):
+def test_pipeline_does_not_pregenerate_compliance_report(tmp_path, monkeypatch):
+    """run_pipeline produces only the data quality report and does not emit
+    a premature duplicate compliance report file at scan time."""
+    import backend.main as main_mod
+
+    assert not hasattr(main_mod, "_write_compliance_report"), (
+        "legacy scan-time compliance writer must stay removed"
+    )
+
     outcomes = _run(tmp_path, monkeypatch, include_hipaa=False)
 
     sheet = outcomes[0]
-    assert sheet["compliance_report_path"], (
-        "standalone compliance report must be written even when the main "
-        "report's own HIPAA section was omitted"
+    assert sheet["report_path"], "main report should be written"
+    assert sheet.get("compliance_report_path") is None, (
+        "compliance report must not be pre-generated at scan time"
     )
-    html = Path(sheet["compliance_report_path"]).read_text(encoding="utf-8")
-    assert "Compliance Report" in html
-    assert _HIPAA_MARKER in html
-    assert 'id="check-hipaa_phi"' in html
+    report_dir = tmp_path / "reports"
+    on_disk = list(report_dir.glob("*compliance_report*"))
+    assert on_disk == [], (
+        f"scan must not write compliance HTML; found {on_disk}"
+    )
 
 
 def test_standalone_compliance_report_matches_main_reports_hipaa_findings(tmp_path, monkeypatch):
-    """Both reports must show identical HIPAA findings for identical
+    """Both reports show identical HIPAA findings for identical
     input -- same underlying CheckResult objects, just two render targets."""
     outcomes = _run(tmp_path, monkeypatch, include_hipaa=True)
 
     sheet = outcomes[0]
     main_html = Path(sheet["report_path"]).read_text(encoding="utf-8")
-    compliance_html = Path(sheet["compliance_report_path"]).read_text(encoding="utf-8")
+
+    # Generate standalone compliance report via engine
+    from backend.engine.pii.detect_pii import detect_pii_in_series
+    from backend.engine.compliance.scanner import assess_hipaa_compliance_as_check_results
+    from backend.engine.ingestion import read_excel_file, detect_header_row, load_with_confirmed_header
+
+    sheets = read_excel_file(str(SAMPLE))
+    raw_df = sheets[sheet["sheet_name"]]
+    header_row = detect_header_row(raw_df)
+    df = load_with_confirmed_header(raw_df, header_row)
+    pii_summary = {str(c): detect_pii_in_series(df[c]) for c in df.columns}
+    hipaa_results = assess_hipaa_compliance_as_check_results(pii_summary, len(df))
+
+    report_data = build_compliance_report_data(
+        filepath=str(SAMPLE),
+        sheet_name=sheet["sheet_name"],
+        row_count=len(df),
+        column_count=df.shape[1],
+        modules={"hipaa_phi": hipaa_results},
+        regulation="HIPAA",
+    )
+    compliance_out = tmp_path / "standalone_compliance.html"
+    generate_compliance_html_report(report_data, str(compliance_out))
+    compliance_html = compliance_out.read_text(encoding="utf-8")
 
     def _stats_block(html: str) -> str:
         start = html.index('id="check-hipaa_phi"')
@@ -150,7 +181,6 @@ def test_compliance_report_only_written_when_write_report_true(tmp_path, monkeyp
     )
     sheet = outcomes[0]
     assert sheet["report_path"] is None
-    assert sheet["compliance_report_path"] is None
 
 
 # ---------------------------------------------------------------------------

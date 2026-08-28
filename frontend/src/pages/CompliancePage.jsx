@@ -2,15 +2,33 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal.jsx";
 
-// key -> display label. "hipaa" is the only supported module today; this
-// stays a plain lookup so a second module is just one more entry, same
-// as ProfilePage's COMPLIANCE_MODULES list.
+// key -> display label and regulation identifier.
 const COMPLIANCE_MODULES = [
   {
     key: "hipaa",
     label: "HIPAA",
+    regulation: "HIPAA",
     description: "Protected health information (PHI) exposure findings across your scans.",
+  },
+  {
+    key: "pci_dss",
+    label: "PCI-DSS",
+    regulation: "PCI_DSS",
+    description: "Cardholder and sensitive authentication data detection (PAN, Expiry, CVV).",
+  },
+  {
+    key: "glba",
+    label: "GLBA",
+    regulation: "GLBA",
+    description: "Gramm-Leach-Bliley Act nonpublic personal financial information (NPI).",
+  },
+  {
+    key: "sox",
+    label: "SOX",
+    regulation: "SOX",
+    description: "Sarbanes-Oxley Act audit trail completeness and timestamp integrity.",
   },
 ];
 
@@ -28,48 +46,56 @@ export default function CompliancePage() {
   const [reportUrl, setReportUrl] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   useEffect(() => {
     api
       .listRuns(clientId)
       .then((all) => {
-        const filtered = all.filter(
-          (r) => r.status === "completed" && r.has_compliance_report !== false
-        );
+        const filtered = all.filter((r) => {
+          if (r.status !== "completed") return false;
+          const mods = r.compliance_modules || [];
+          if (!mods.length) return false;
+          return mods.includes(activeModule.regulation);
+        });
         setRuns(filtered);
       })
       .catch((e) => setError(e.message));
-  }, [clientId]);
+  }, [clientId, activeModule.regulation]);
 
   useEffect(() => () => reportUrl && URL.revokeObjectURL(reportUrl), [reportUrl]);
 
-  const viewReport = async (runId) => {
+  const viewReport = async (runId, targetMod = activeModule) => {
     setSelectedRunId(runId);
     setReportLoading(true);
     setReportError(null);
     try {
       if (reportUrl) URL.revokeObjectURL(reportUrl);
-      const url = await api.fetchComplianceReportBlobUrl(runId);
+      const url = await api.fetchComplianceReportBlobUrl(runId, null, targetMod.regulation || targetMod.label);
       setReportUrl(url);
     } catch (e) {
       setReportError(e.message);
       setReportUrl(null);
-      // Auto-remove run from sidebar if compliance report is not available
-      setRuns((prev) => (prev ? prev.filter((r) => r.run_id !== runId) : prev));
     } finally {
       setReportLoading(false);
     }
   };
 
-  const deleteRun = async (e, runId, fileName) => {
-    e.stopPropagation();
-    if (
-      !window.confirm(
-        `Are you sure you want to delete the run for "${fileName}"? This will permanently remove its reports.`
-      )
-    ) {
-      return;
+  useEffect(() => {
+    if (selectedRunId) {
+      viewReport(selectedRunId, activeModule);
     }
+  }, [activeModuleKey]);
+
+  const deleteRun = (e, runId, fileName) => {
+    e.stopPropagation();
+    setPendingDelete({ runId, fileName });
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { runId } = pendingDelete;
+    setPendingDelete(null);
     try {
       await api.deleteRun(runId);
       setRuns((prev) => (prev ? prev.filter((r) => r.run_id !== runId) : []));
@@ -235,6 +261,16 @@ export default function CompliancePage() {
           </div>
         </div>
       )}
+      <ConfirmDeleteModal
+        open={Boolean(pendingDelete)}
+        message={
+          pendingDelete
+            ? `This will permanently remove the scan for "${pendingDelete.fileName}" and its reports.`
+            : ""
+        }
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

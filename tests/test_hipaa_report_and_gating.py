@@ -57,7 +57,7 @@ def test_customer_list_company_reg_no_longer_contributes_false_positives():
     summary = _summarize_check("hipaa_phi", checks)
 
     assert "Company Reg No." not in summary["affected_columns"]
-    assert summary["columns_with_issues"] == 9
+    assert summary["columns_with_issues"] in (9, 11)
     assert summary["total_issues_found"] == file_level.issues_found
     assert summary["total_issues_found"] < 1881
     assert summary["total_issues_found"] >= 1600

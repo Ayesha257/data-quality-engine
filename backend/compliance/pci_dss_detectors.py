@@ -20,7 +20,7 @@ from typing import Any
 
 import pandas as pd
 
-from backend.compliance.fuzzy_columns import normalize_column_name
+from backend.engine.utils.fuzzy_matching import normalize_column_name
 
 # ---------------------------------------------------------------------------
 # Rule Configuration Loader

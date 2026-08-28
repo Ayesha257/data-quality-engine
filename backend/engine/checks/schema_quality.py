@@ -24,7 +24,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from backend.compliance.fuzzy_columns import find_matching_columns
+from backend.engine.utils.fuzzy_matching import find_matching_columns
 from backend.engine.compliance.compliance_status import sanitize_details
 from backend.engine.models import CheckResult
 

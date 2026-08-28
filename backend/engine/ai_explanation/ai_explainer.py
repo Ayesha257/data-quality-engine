@@ -315,6 +315,17 @@ def _fallback_text(summary: dict[str, Any]) -> str:
         else:
             findings += "No blockers detected — data looks ready for forecasting."
 
+    if summary.get("regulation"):
+        extra = (
+            f"Regulation: {summary.get('regulation')}. "
+            f"Confidence: {summary.get('confidence_tier') or summary.get('severity')}. "
+            f"Column: {', '.join(summary.get('affected_columns') or []) or 'n/a'}."
+        )
+        samples = summary.get("masked_samples") or []
+        if samples:
+            extra += f" Masked samples: {', '.join(str(s) for s in samples[:5])}."
+        findings = f"{extra} {findings}".strip()
+
     return format_section_lines(
         {
             "WHAT THIS MEANS": guide["what_it_means"],
@@ -355,7 +366,14 @@ def _build_check_prompt(summary: dict[str, Any]) -> str:
         f"Total issues found: {summary.get('total_issues_found')}\n"
         f"Affected columns: {affected}\n"
         f"Sample findings:\n{sample_lines}\n\n"
-        "Educational context for this check in THIS product (use to teach the reader):\n"
+        + (
+            f"Regulation: {summary.get('regulation')}\n"
+            f"Confidence tier: {summary.get('confidence_tier')}\n"
+            f"Masked/sample values: {', '.join(str(s) for s in (summary.get('masked_samples') or [])[:5]) or 'none'}\n\n"
+            if summary.get("regulation")
+            else ""
+        )
+        + "Educational context for this check in THIS product (use to teach the reader):\n"
         f"- Concept: {guide['what_it_means']}\n"
         f"- Methodology: {guide['how_we_check']}\n\n"
         f"Pre-computed business impact (do not contradict): {summary.get('business_impact')}\n"

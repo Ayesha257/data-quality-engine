@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCI_DSS Compliance Report -- financial_test.xlsx</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: 'Segoe UI', -apple-system, Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #F5F3EF; color: #3F3A34; }
+.container { max-width: 1180px; margin: 0 auto; padding: 24px; }
+.hero { background: linear-gradient(135deg, #14181F 0%, #1E2A2E 55%, #1F6D66 100%); color: white; padding: 40px 24px 32px; text-align: center; }
+.hero-icon { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 14px; background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.3); margin: 0 auto 14px; color: #5EDCD2; }
+.hero-icon svg { width: 26px; height: 26px; }
+.hero-brand { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #9DD9D2; font-weight: 700; margin-bottom: 8px; }
+.hero h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
+.hero .subtitle { color: #C9E8E4; font-size: 13.5px; margin-bottom: 20px; }
+.hero-meta { display: flex; justify-content: center; gap: 28px; margin-top: 22px; font-size: 11.5px; color: #9DD9D2; flex-wrap: wrap; text-transform: uppercase; letter-spacing: 0.04em; }
+.score-hero { display: flex; align-items: center; justify-content: center; gap: 28px; flex-wrap: wrap; margin-top: 8px; }
+.gauge-wrap { filter: drop-shadow(0 4px 10px rgba(0,0,0,0.25)); }
+.readiness-badge { color: white; font-size: 14px; font-weight: 700; padding: 8px 16px; border-radius: 8px; display: inline-block; }
+.card { background: white; border-radius: 16px; padding: 26px; margin-bottom: 20px; box-shadow: 0 4px 16px rgba(41,37,31,0.06); border: 1px solid #E7E2DA; }
+h2 { font-size: 19px; font-weight: 800; border-left: 4px solid #28A89E; padding-left: 12px; margin-top: 0; margin-bottom: 8px; letter-spacing: -0.01em; color: #29251F; }
+h3 { font-size: 15px; font-weight: 700; margin: 0; color: #29251F; }
+h4 { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #79726A; margin: 18px 0 10px; }
+p { font-size: 13.5px; line-height: 1.65; }
+.section-intro { color: #5C554C; margin-bottom: 16px; }
+.chart-box { position: relative; margin: 0 auto; }
+.badge { color: white; font-size: 10.5px; font-weight: 700; padding: 4px 10px; border-radius: 20px; display: inline-block; white-space: nowrap; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+.kpi-card { background: #FAF8F5; border: 1px solid #E7E2DA; border-radius: 14px; padding: 16px; transition: transform .15s ease, box-shadow .15s ease; }
+.kpi-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(41,37,31,0.10); border-color: #D8D1C4; }
+.kpi-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+.kpi-icon svg { width: 17px; height: 17px; }
+.kpi-label { font-size: 11px; color: #79726A; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
+.kpi-score { font-size: 26px; font-weight: 800; margin: 4px 0; letter-spacing: -0.02em; color: #29251F; }
+.kpi-bar-track { background: #E7E2DA; border-radius: 6px; height: 6px; overflow: hidden; }
+.kpi-bar-fill { height: 100%; border-radius: 6px; }
+.kpi-meta { font-size: 10px; color: #A29A8D; margin-top: 6px; }
+.stat-card { display: flex; align-items: center; gap: 14px; background: #FAF8F5; border: 1px solid #E7E2DA; border-radius: 14px; padding: 16px; flex: 1; transition: box-shadow .15s ease; }
+.stat-card:hover { box-shadow: 0 10px 24px rgba(41,37,31,0.08); }
+.stat-card-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-card-icon svg { width: 20px; height: 20px; }
+.stat-card-num { font-size: 22px; font-weight: 800; color: #29251F; }
+.stat-card-label { font-size: 12px; color: #79726A; max-width: 240px; }
+.check-card { border: 1px solid #E7E2DA; border-radius: 12px; padding: 4px 18px 18px; margin-bottom: 12px; }
+.check-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; padding: 14px 0; }
+.check-header::-webkit-details-marker { display: none; }
+.check-stats { display: flex; gap: 28px; margin: 12px 0; }
+.stat-num { display: block; font-size: 22px; font-weight: 700; color: #29251F; }
+.stat-label { font-size: 11px; color: #79726A; }
+.sample-list { font-size: 12.5px; color: #5C554C; padding-left: 18px; }
+.evidence-cell { font-size: 12px; color: #5C554C; }
+.empty-state { text-align: center; color: #A29A8D; padding: 18px !important; font-style: italic; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { background: #29251F; color: #EDE9E2; text-align: left; padding: 10px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+td { padding: 9px 10px; border-bottom: 1px solid #E7E2DA; color: #3F3A34; }
+table.striped tr:nth-child(even) td { background: #FAF8F5; }
+table.striped tr:hover td { background: #EAF7F5; }
+.role-pill { background: #E7E2DA; color: #4A4339; padding: 2px 9px; border-radius: 12px; font-size: 10.5px; font-weight: 600; }
+.findings-critical { color: #DC2626; }
+.findings-positive { color: #1F8A7F; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+@media (max-width: 800px) { .two-col, .grid-3 { grid-template-columns: 1fr; } }
+.nav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.nav-sticky { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); border-bottom: 1px solid #E7E2DA; padding: 10px 24px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.nav a, .nav-sticky a { font-size: 11.5px; color: #1F8A7F; text-decoration: none; background: #EAF7F5; padding: 6px 12px; border-radius: 20px; font-weight: 600; }
+.nav a:hover, .nav-sticky a:hover { background: #D5F0EC; }
+.alert { border-radius: 10px; padding: 12px 16px; font-size: 12.5px; text-align: left; max-width: 760px; margin: 14px auto 0; }
+.alert-warning { background: #FDF1DB; border: 1px solid #E8A33D; color: #8A5A16; }
+.print-btn { position: fixed; top: 16px; right: 16px; background: #1F8A7F; color: white; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(31,138,127,0.35); z-index: 30; }
+.footer-note { text-align: center; font-size: 11px; color: #A29A8D; padding: 20px 0 40px; }
+@media print { .print-btn, .nav, .nav-sticky { display: none; } }
+
+.inspect-compliance-btn {
+  background: linear-gradient(135deg, #3FD1C6, #2BB8AD);
+  color: #0B1120;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.inspect-compliance-btn:hover { opacity: 0.9; }
+
+/* --- Modal: hidden by default, shown only via .open --- */
+.ai-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ai-modal-overlay.open { display: flex; }
+
+.ai-modal-container {
+  background: #0F172A;
+  border: 1px solid #1E293B;
+  border-radius: 16px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 24px;
+}
+.ai-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.ai-title-wrap { display: flex; align-items: flex-start; gap: 12px; }
+.ai-card-title { color: #F1F5F9; font-weight: 700; }
+.ai-modal-close {
+  background: none;
+  border: none;
+  color: #94A3B8;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.ai-modal-close:hover { color: #F1F5F9; }
+
+.ai-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .ai-grid { grid-template-columns: 1fr; }
+}
+.ai-grid > div {
+  background: #131C2E;
+  border: 1px solid #1E293B;
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.ai-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #1E293B;
+}
+.ai-btn-secondary {
+  background: #1E293B;
+  color: #E2E8F0;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.ai-btn-secondary:hover { background: #263449; }
+
+.compliance-empty {
+  text-align: center;
+  color: #94A3B8;
+  padding: 32px;
+}
+</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">Download PDF</button>
+
+<div class="hero">
+  <div class="hero-brand">Data Quality Platform</div>
+  <div class="hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <h1>PCI_DSS Compliance Report</h1>
+  <div class="subtitle">financial_test.xlsx &middot; Sheet: Financials</div>
+  <div class="hero-meta">
+    <div>Generated: 2026-08-28 14:53</div>
+    <div>Rows Analyzed: 3</div>
+    <div>Columns Analyzed: 6</div>
+    <div>Resolved Findings: 2</div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Mandatory Non-HIPAA Legal Disclaimer -->
+  <div style="background:#1E293B; border-left:4px solid #F59E0B; padding:14px 18px; border-radius:8px; margin-bottom:20px; color:#F1F5F9; font-size:0.92rem; line-height:1.5;">
+    <strong style="color:#F59E0B; margin-right:6px;">DISCLAIMER:</strong>
+    This report flags compliance-relevant data patterns. It does not certify legal compliance with PCI_DSS.
+  </div>
+
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+      <h2 style="margin:0;">Resolved Compliance Findings</h2>
+      <span style="font-size:0.85rem; color:#94A3B8;">Grouped by Confidence Tier</span>
+    </div>
+    <p class="section-intro" style="margin-bottom:20px;">
+      This report contains all resolved compliance findings for <b>PCI_DSS</b>, including high/medium confidence detections and user-confirmed review items. Rejected and pending unverified items are omitted.
+    </p>
+    
+        <div style="margin-bottom:24px;">
+          <h3 style="color:#F1F5F9; border-bottom:1px solid #1E293B; padding-bottom:8px; margin-bottom:12px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+            <span>High Confidence</span>
+            <span style="font-size:0.8rem; background:#1E293B; color:#94A3B8; padding:2px 8px; border-radius:12px;">1</span>
+          </h3>
+          
+    <div class="check-card" style="margin-bottom:14px; background:#131C2E; border:1px solid #1E293B; border-radius:10px; padding:16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <h3 style="margin:0; font-size:1.05rem; color:#F1F5F9;">Primary Account Number</h3>
+        <span class="badge" style="background:#EF4444">High Confidence</span>
+      </div>
+      <p style="margin:4px 0; color:#CBD5E1; font-size:0.9rem;"><b>Flagged Column:</b> <code>card_number</code></p>
+      <p style="margin:4px 0; color:#94A3B8; font-size:0.85rem;">Found 3 PAN (credit/debit card) value(s) matching Luhn checksum in column 'card_number'.</p>
+      <p><b>Masked Sample Values:</b></p><ul class='sample-list'><li><code>**** **** **** 1111</code></li><li><code>**** **** **** 4444</code></li><li><code>**** **** **** 0002</code></li></ul>
+    </div>
+    
+        </div>
+        
+        <div style="margin-bottom:24px;">
+          <h3 style="color:#F1F5F9; border-bottom:1px solid #1E293B; padding-bottom:8px; margin-bottom:12px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+            <span>Medium Confidence</span>
+            <span style="font-size:0.8rem; background:#1E293B; color:#94A3B8; padding:2px 8px; border-radius:12px;">1</span>
+          </h3>
+          
+    <div class="check-card" style="margin-bottom:14px; background:#131C2E; border:1px solid #1E293B; border-radius:10px; padding:16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <h3 style="margin:0; font-size:1.05rem; color:#F1F5F9;">Card Expiration Date</h3>
+        <span class="badge" style="background:#F59E0B">Medium Confidence</span>
+      </div>
+      <p style="margin:4px 0; color:#CBD5E1; font-size:0.9rem;"><b>Flagged Column:</b> <code>exp_date</code></p>
+      <p style="margin:4px 0; color:#94A3B8; font-size:0.85rem;">Found 3 card expiration date value(s) in column 'exp_date'.</p>
+      <p><b>Sample Values:</b></p><ul class='sample-list'><li><code>05/28</code></li><li><code>12/29</code></li><li><code>01/30</code></li></ul>
+    </div>
+    
+        </div>
+        
+        <div style="margin-bottom:24px;">
+          <h3 style="color:#F1F5F9; border-bottom:1px solid #1E293B; padding-bottom:8px; margin-bottom:12px; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+            <span>Confirmed (User-Verified)</span>
+            <span style="font-size:0.8rem; background:#1E293B; color:#94A3B8; padding:2px 8px; border-radius:12px;">0</span>
+          </h3>
+          <div style='color:#64748B; font-style:italic; padding:8px 0;'>No findings in this category.</div>
+        </div>
+        
+  </div>
+</div>
+
+<div class="footer-note">PCI_DSS Compliance Report &middot; Data Quality Platform</div>
+</body>
+</html>

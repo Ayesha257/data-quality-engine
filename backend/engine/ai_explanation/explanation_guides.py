@@ -224,6 +224,254 @@ CHECK_GUIDE: dict[str, dict[str, str]] = {
             "tables for recurring variants your organization uses."
         ),
     },
+    "pci_pan": {
+        "what_it_means": (
+            "A Primary Account Number (PAN) is a credit or debit card number. Finding these in a "
+            "spreadsheet means cardholder data may be stored in the clear."
+        ),
+        "how_we_check": (
+            "We look for 13–19 digit sequences and confirm they pass the standard Luhn checksum "
+            "used by payment cards. Full numbers are masked in this report."
+        ),
+        "fix_hints": (
+            "Remove or tokenize card numbers at the source. Store only a processor token or last four "
+            "digits, and restrict who can export this file."
+        ),
+    },
+    "pci_card_expiry": {
+        "what_it_means": (
+            "Card expiration dates (month/year) are cardholder data. They often sit next to PANs "
+            "and should not live in everyday operational files."
+        ),
+        "how_we_check": (
+            "We first match column names that look like expiry/expiration, then check cell values "
+            "against MM/YY or MM/YYYY patterns."
+        ),
+        "fix_hints": (
+            "Drop expiry columns from analytics extracts, or store them only in the payment vault "
+            "that already holds the card token."
+        ),
+    },
+    "pci_cvv": {
+        "what_it_means": (
+            "CVV/CVC is the security code on a card. PCI DSS forbids storing it after authorization."
+        ),
+        "how_we_check": (
+            "We flag columns whose names look like CVV, CVC, or security code. We do not read the cell values."
+        ),
+        "fix_hints": (
+            "Delete CVV columns from stored files immediately. Never keep this field in backups or exports."
+        ),
+    },
+    "glba_routing_number": {
+        "what_it_means": (
+            "An ABA routing number identifies a US bank for ACH and wires. It is nonpublic financial "
+            "information when tied to a customer account."
+        ),
+        "how_we_check": (
+            "We look for 9-digit values and confirm they pass the ABA weighted checksum."
+        ),
+        "fix_hints": (
+            "Limit who can export routing numbers, mask them in reports, and keep them only in systems "
+            "that already protect customer banking data."
+        ),
+    },
+    "routing_number": {
+        "what_it_means": (
+            "An ABA routing number identifies a US bank for ACH and wires. It is nonpublic financial "
+            "information when tied to a customer account."
+        ),
+        "how_we_check": (
+            "We look for 9-digit values and confirm they pass the ABA weighted checksum."
+        ),
+        "fix_hints": (
+            "Limit who can export routing numbers, mask them in reports, and keep them only in systems "
+            "that already protect customer banking data."
+        ),
+    },
+    "glba_bank_account_number": {
+        "what_it_means": (
+            "Bank account numbers and IBANs represent nonpublic personal financial information (NPI) "
+            "under the Gramm-Leach-Bliley Act (GLBA). Unmasked account numbers pose severe fraud and unauthorized transfer risks."
+        ),
+        "how_we_check": (
+            "We scan column headers for bank account, checking, savings, deposit, and IBAN naming patterns."
+        ),
+        "fix_hints": (
+            "Mask account numbers to the last 4 digits (e.g., ****1234), restrict exports, and enforce role-based access control."
+        ),
+    },
+    "bank_account_number": {
+        "what_it_means": (
+            "Bank account numbers and IBANs represent nonpublic personal financial information (NPI) "
+            "under the Gramm-Leach-Bliley Act (GLBA). Unmasked account numbers pose severe fraud and unauthorized transfer risks."
+        ),
+        "how_we_check": (
+            "We scan column headers for bank account, checking, savings, deposit, and IBAN naming patterns."
+        ),
+        "fix_hints": (
+            "Mask account numbers to the last 4 digits (e.g., ****1234), restrict exports, and enforce role-based access control."
+        ),
+    },
+    "glba_loan_application_data": {
+        "what_it_means": (
+            "Loan application records, principal amounts, and mortgage figures are protected customer financial data under GLBA."
+        ),
+        "how_we_check": (
+            "We inspect column names for loan application, principal amount, mortgage balance, and borrowing details."
+        ),
+        "fix_hints": (
+            "Restrict access to authorized lending officers and ensure compliance with GLBA financial privacy rules."
+        ),
+    },
+    "loan_application_data": {
+        "what_it_means": (
+            "Loan application records, principal amounts, and mortgage figures are protected customer financial data under GLBA."
+        ),
+        "how_we_check": (
+            "We inspect column names for loan application, principal amount, mortgage balance, and borrowing details."
+        ),
+        "fix_hints": (
+            "Restrict access to authorized lending officers and ensure compliance with GLBA financial privacy rules."
+        ),
+    },
+    "glba_credit_history_data": {
+        "what_it_means": (
+            "Credit scores, FICO ratings, and credit report summaries are regulated nonpublic financial records under GLBA."
+        ),
+        "how_we_check": (
+            "We check column names for credit score, FICO rating, credit history, and bureau report keywords."
+        ),
+        "fix_hints": (
+            "Isolate credit history columns to authorized underwriting environments and redact before broader analytical sharing."
+        ),
+    },
+    "credit_history_data": {
+        "what_it_means": (
+            "Credit scores, FICO ratings, and credit report summaries are regulated nonpublic financial records under GLBA."
+        ),
+        "how_we_check": (
+            "We check column names for credit score, FICO rating, credit history, and bureau report keywords."
+        ),
+        "fix_hints": (
+            "Isolate credit history columns to authorized underwriting environments and redact before broader analytical sharing."
+        ),
+    },
+    "glba_tax_return_data": {
+        "what_it_means": (
+            "Tax return information, adjusted gross income (AGI), and W-2/1099 data are strictly protected nonpublic records under GLBA."
+        ),
+        "how_we_check": (
+            "We scan column headers for tax return, filing status, AGI, and income verification terms."
+        ),
+        "fix_hints": (
+            "Enforce strict confidentiality and data masking for tax records in accordance with the GLBA Safeguards Rule."
+        ),
+    },
+    "tax_return_data": {
+        "what_it_means": (
+            "Tax return information, adjusted gross income (AGI), and W-2/1099 data are strictly protected nonpublic records under GLBA."
+        ),
+        "how_we_check": (
+            "We scan column headers for tax return, filing status, AGI, and income verification terms."
+        ),
+        "fix_hints": (
+            "Enforce strict confidentiality and data masking for tax records in accordance with the GLBA Safeguards Rule."
+        ),
+    },
+    "PAN": {
+        "what_it_means": (
+            "A Primary Account Number (PAN) is a credit or debit card number. Storing unmasked PANs violates PCI DSS Requirement 3."
+        ),
+        "how_we_check": (
+            "We detect 13-19 digit card sequences passing the Luhn mod-10 algorithm. Full numbers are masked to the last 4 digits."
+        ),
+        "fix_hints": (
+            "Tokenize card numbers, truncate to the last 4 digits, and never store raw PANs in plaintext operational spreadsheets."
+        ),
+    },
+    "card_expiry": {
+        "what_it_means": (
+            "Card expiration dates represent sensitive cardholder data that should not be stored unencrypted alongside account numbers."
+        ),
+        "how_we_check": (
+            "We match column headers indicating expiration and validate MM/YY date formats."
+        ),
+        "fix_hints": (
+            "Drop expiration date columns from operational exports and store only tokenized payment credentials in secure vaults."
+        ),
+    },
+    "cvv": {
+        "what_it_means": (
+            "Card Verification Values (CVV/CVC) are sensitive authentication data (SAD). PCI DSS strictly prohibits storing CVV post-authorization."
+        ),
+        "how_we_check": (
+            "We flag column headers matching CVV/CVC security code terms. Row values are never read or stored."
+        ),
+        "fix_hints": (
+            "Delete CVV columns immediately. Sensitive authentication data must never be written to persistent storage."
+        ),
+    },
+    "audit_trail_headers": {
+        "what_it_means": (
+            "SOX-relevant files should show who created or approved a record and when it last changed, "
+            "so auditors can follow the trail."
+        ),
+        "how_we_check": (
+            "We look at column names for creator, approver, and last-modified style fields and report coverage."
+        ),
+        "fix_hints": (
+            "Add created-by, approved-by, and last-modified timestamp columns at the source system before export."
+        ),
+    },
+    "audit_trail_completeness": {
+        "what_it_means": (
+            "SOX-relevant files should show who created or approved a record and when it last changed, "
+            "so auditors can follow the trail."
+        ),
+        "how_we_check": (
+            "We look at column names for creator, approver, and last-modified style fields and report coverage."
+        ),
+        "fix_hints": (
+            "Add created-by, approved-by, and last-modified timestamp columns at the source system before export."
+        ),
+    },
+    "transaction_timestamp": {
+        "what_it_means": (
+            "Transaction timestamps prove when a financial event happened. Missing or invalid dates "
+            "weaken an audit trail."
+        ),
+        "how_we_check": (
+            "We identify columns that parse as dates or look like transaction timestamps."
+        ),
+        "fix_hints": (
+            "Ensure every financial event has a reliable timestamp from the source system, not a blank or placeholder."
+        ),
+    },
+    "sox_audit_trail_headers": {
+        "what_it_means": (
+            "SOX-relevant files should show who created or approved a record and when it last changed, "
+            "so auditors can follow the trail."
+        ),
+        "how_we_check": (
+            "We look at column names for creator, approver, and last-modified style fields and report coverage."
+        ),
+        "fix_hints": (
+            "Add created-by, approved-by, and last-modified timestamp columns at the source system before export."
+        ),
+    },
+    "sox_transaction_timestamp": {
+        "what_it_means": (
+            "Transaction timestamps prove when a financial event happened. Missing or invalid dates "
+            "weaken an audit trail."
+        ),
+        "how_we_check": (
+            "We identify columns that parse as dates or look like transaction timestamps."
+        ),
+        "fix_hints": (
+            "Ensure every financial event has a reliable timestamp from the source system, not a blank or placeholder."
+        ),
+    },
     "ml_readiness": {
         "what_it_means": (
             "Forecast readiness assesses whether your time-series data is suitable for prediction models "

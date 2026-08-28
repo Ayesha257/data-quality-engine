@@ -55,8 +55,6 @@ from backend.engine.compliance import (
     assess_hipaa_compliance,
     assess_hipaa_compliance_as_check_results,
     score_hipaa_compliance,
-    build_compliance_report_data,
-    generate_compliance_html_report,
 )
 from backend.engine.reports.report_generator import build_report_data
 from backend.engine.reports.pdf_report import generate_pdf_report
@@ -1025,55 +1023,6 @@ def _write_ai_enhanced_report(
     return str(ai_path), pdf_path
 
 
-def _write_compliance_report(
-    *,
-    filepath: str,
-    sname: str,
-    row_count: int,
-    column_count: int,
-    hipaa_summary: dict | None,
-    out_dir,
-    gemini_api_key: str | None = None,
-) -> str | None:
-    """
-    Writes the standalone Compliance Report (currently HIPAA-only; see
-    engine/compliance/report.py for how a second regulation module would
-    be added). Reuses the exact same hipaa_check_results CheckResult
-    objects the main report's HIPAA section (when included) renders --
-    no second call into the HIPAA scanner/scorer, no duplicated analysis.
-
-    Independent of include_hipaa: the standalone compliance report always
-    reflects the compliance analysis for this run, regardless of whether
-    the main report was asked to include or omit its own HIPAA section --
-    those are two different presentation surfaces for the same underlying
-    result.
-
-    Best-effort, like the PDF report: returns None (never raises) if there
-    is nothing to report or if rendering fails, so a compliance-report
-    problem never blocks the main report or the rest of the pipeline.
-    """
-    if not hipaa_summary or not hipaa_summary.get("hipaa_check_results"):
-        return None
-    try:
-        modules = {"hipaa_phi": hipaa_summary["hipaa_check_results"]}
-        report_data = build_compliance_report_data(
-            filepath=filepath,
-            sheet_name=sname,
-            row_count=row_count,
-            column_count=column_count,
-            modules=modules,
-            gemini_api_key=gemini_api_key,
-        )
-        stem = Path(filepath).stem
-        safe_sheet = "".join(c if c.isalnum() else "_" for c in sname)
-        out_path = Path(out_dir) / f"{stem}_{safe_sheet}_compliance_report.html"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        generate_compliance_html_report(report_data, str(out_path))
-        return str(out_path)
-    except Exception as exc:  # noqa: BLE001 - best-effort, mirrors PDF report handling
-        print(f"\n[WARN] Compliance report generation failed for sheet '{sname}': {exc}")
-        return None
-
 
 def run_pipeline(
     filepath: str,
@@ -1089,6 +1038,7 @@ def run_pipeline(
     client_id: str = "default_client",
     gemini_api_key: str | None = None,
     include_hipaa: bool = False,
+    compliance_modules: list[str] | None = None,
 ) -> list[dict]:
     """
     Full Phase 1 + Phase 2 pipeline for one file (all sheets, or a single --sheet).
@@ -1138,7 +1088,9 @@ def run_pipeline(
             "ml_readiness_verdict": str | None,
             "ml_readiness_score": float | None,
             "report_path": str | None,   # only when write_report=True and it succeeded
-            "compliance_report_path": str | None,  # only when write_report=True and it succeeded
+            "compliance_report_path": str | None,  # always None; compliance HTML is
+                                                   # generated on demand by GET
+                                                   # /v1/runs/{id}/compliance-report
             "error": str | None,         # set instead of the above if this sheet raised
         }
     This is purely additive: every existing CLI/script caller already
@@ -1148,7 +1100,12 @@ def run_pipeline(
     real outcome back to whoever asked for the run, for any file/dataset,
     without scraping stdout or re-deriving what the pipeline already knows.
     """
+    from backend.engine.compliance.opt_in import normalize_compliance_modules
+
     prompt = prompt or CLIPrompt()
+    selected_modules = normalize_compliance_modules(
+        compliance_modules, include_hipaa=include_hipaa
+    )
     run_id = uuid.uuid4().hex[:12]
     logger = get_logger(run_id)
     sheet_outcomes: list[dict] = []
@@ -1206,10 +1163,33 @@ def run_pipeline(
             task2_summary = _print_top_results(df)
             task3_summary = _print_task3_results(df)
             task4_summary = _print_task4_results(df)
-            # Phase 2 M9: HIPAA compliance after PII, before scoring (plan §5.1)
-            hipaa_summary = _print_hipaa_compliance_results(
-                task4_summary, len(df), run_id=run_id
-            )
+            # Compliance detectors are opt-in (scan Advanced Options).
+            hipaa_t0 = time.perf_counter()
+            if "HIPAA" in selected_modules:
+                hipaa_summary = _print_hipaa_compliance_results(
+                    task4_summary, len(df), run_id=run_id
+                )
+            else:
+                print("\n=== HIPAA PHI Compliance Scan ===")
+                print("Skipped: HIPAA was not selected for this scan.")
+                hipaa_summary = None
+            print(f"[timing] hipaa_compliance: {time.perf_counter() - hipaa_t0:.3f}s")
+
+            financial_scans: dict = {}
+            fin_t0 = time.perf_counter()
+            financial_wanted = [m for m in selected_modules if m in ("PCI_DSS", "GLBA", "SOX")]
+            if financial_wanted:
+                from backend.compliance.financial_compliance import run_compliance_scan
+
+                for reg in financial_wanted:
+                    one_t0 = time.perf_counter()
+                    financial_scans[reg] = run_compliance_scan(df, reg, prompt=prompt)
+                    print(
+                        f"[timing] financial_scan {reg}: {time.perf_counter() - one_t0:.3f}s"
+                    )
+            else:
+                print("Financial compliance scans skipped: no PCI-DSS/GLBA/SOX selected.")
+            print(f"[timing] financial_compliance_total: {time.perf_counter() - fin_t0:.3f}s")
             # plan.md Section 4.9 step (g): fuzzy standardization after PII
             fuzzy_summary = _print_fuzzy_standardization_results(df, classification)
             entity_resolution_summary = _print_entity_resolution_results(
@@ -1268,21 +1248,6 @@ def run_pipeline(
                     report_error = str(exc)
                     print(f"\n[ERROR] Report generation failed for sheet '{sname}': {exc}")
 
-                # Standalone Compliance Report -- always attempted whenever
-                # write_report=True, independent of include_hipaa above
-                # (that flag only controls the main report's own section).
-                # Best-effort: never raises, never blocks the main report.
-                compliance_report_path = _write_compliance_report(
-                    filepath=filepath,
-                    sname=sname,
-                    row_count=len(df),
-                    column_count=df.shape[1],
-                    hipaa_summary=hipaa_summary,
-                    out_dir=out_dir,
-                    gemini_api_key=gemini_api_key,
-                )
-                if compliance_report_path:
-                    print(f"Compliance report written: {compliance_report_path}")
         except Exception as exc:  # noqa: BLE001 - never abort remaining sheets
             log_event(
                 logger,
@@ -1413,6 +1378,9 @@ def run_pipeline(
             "report_path": report_path,
             "pdf_report_path": pdf_report_path,
             "compliance_report_path": compliance_report_path,
+            "compliance_modules": selected_modules,
+            "compliance_scans": financial_scans,
+            "header_row": header_row,
             "entity_resolution": entity_resolution_summary,
             "entity_resolution_auto": (entity_resolution_summary or {}).get("summary", {}).get(
                 "auto_match"
@@ -1508,13 +1476,19 @@ def build_parser() -> argparse.ArgumentParser:
         "button uses rule-based explanations instead of AI.",
     )
     p.add_argument(
+        "--compliance-module",
+        action="append",
+        dest="compliance_modules",
+        default=None,
+        help="Opt-in compliance detector to run (HIPAA, PCI_DSS, GLBA, SOX). "
+        "Repeat the flag to select more than one. Default: none.",
+    )
+    p.add_argument(
         "--no-hipaa-in-report",
         action="store_true",
         help="Only used with --report. Omit the HIPAA PHI compliance "
-        "section from the main data quality report (default: included). "
-        "The HIPAA analysis itself always still runs and is always "
-        "available in the separate standalone Compliance Report, "
-        "regardless of this flag.",
+        "section from the main data quality report (default: omitted unless "
+        "--compliance-module HIPAA is also passed).",
     )
     return p
 
@@ -1535,5 +1509,6 @@ if __name__ == "__main__":
         date_column=args.date_column,
         client_id=args.client_id,
         gemini_api_key=args.gemini_api_key,
-        include_hipaa=not args.no_hipaa_in_report,
+        include_hipaa=(not args.no_hipaa_in_report) and bool(args.compliance_modules and "HIPAA" in [m.upper() for m in args.compliance_modules]),
+        compliance_modules=args.compliance_modules,
     )

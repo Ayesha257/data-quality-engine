@@ -42,7 +42,12 @@ class TestRateLimiter:
     def test_blocks_once_the_limit_is_reached(self, monkeypatch):
         limiter = ai_explainer._RateLimiter(max_per_minute=2)
         sleep_calls = []
-        monkeypatch.setattr(ai_explainer.time, "sleep", lambda s: sleep_calls.append(s))
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(ai_explainer.time, "monotonic", lambda: clock["t"])
+        def fake_sleep(s):
+            sleep_calls.append(s)
+            clock["t"] += s + 1.0
+        monkeypatch.setattr(ai_explainer.time, "sleep", fake_sleep)
 
         limiter.acquire()
         limiter.acquire()

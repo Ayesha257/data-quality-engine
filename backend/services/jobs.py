@@ -134,6 +134,7 @@ def _execute(
     gemini_api_key: str | None,
     include_hipaa: bool = False,
     interactive: bool = False,
+    compliance_modules: list[str] | None = None,
 ) -> None:
     """Runs on a worker thread. Never raises -- every failure path updates
     the RunRecord instead, so a crashed run is always observable via the
@@ -167,6 +168,7 @@ def _execute(
             client_id=client_id,
             gemini_api_key=gemini_api_key,
             include_hipaa=include_hipaa,
+            compliance_modules=compliance_modules,
         )
 
         outcomes = outcomes or []
@@ -268,8 +270,17 @@ def _write_manifest(run_id: str, outcomes: list[dict[str, Any]]) -> None:
             }
         )
         payload = {"sheets": outcomes}
+        modules: list[str] = []
+        for o in outcomes:
+            for m in o.get("compliance_modules") or []:
+                if m not in modules:
+                    modules.append(m)
+        if modules:
+            payload["compliance_modules"] = modules
         if existing is not None:
             existing.checks_run = checks_run
+            if existing.extra and "compliance_decisions" in existing.extra:
+                payload["compliance_decisions"] = existing.extra["compliance_decisions"]
             existing.extra = payload
         else:
             session.add(
@@ -297,6 +308,7 @@ def enqueue_run(
     gemini_api_key: str | None = None,
     include_hipaa: bool = False,
     interactive: bool = False,
+    compliance_modules: list[str] | None = None,
 ) -> None:
     """Submit a run to the background executor. Returns immediately --
     the caller (routes.py) already created the PENDING RunRecord and hands
@@ -316,6 +328,7 @@ def enqueue_run(
         gemini_api_key=gemini_api_key,
         include_hipaa=include_hipaa,
         interactive=interactive,
+        compliance_modules=compliance_modules,
     )
 
 

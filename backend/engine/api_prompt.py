@@ -67,16 +67,16 @@ _waiters: dict[str, threading.Event] = {}
 _answers: dict[str, dict[str, Any]] = {}
 
 
-def submit_answer(run_id: str, answer: dict[str, Any]) -> bool:
-    """Called by POST /v1/runs/{run_id}/confirm. Returns False if no
-    checkpoint is currently waiting on this run_id (already answered,
+def submit_answer(run_id: str, answer: dict[str, Any] | list[Any]) -> bool:
+    """Called by POST /v1/runs/{run_id}/confirm or /v1/runs/{run_id}/compliance-confirm.
+    Returns False if no checkpoint is currently waiting on this run_id (already answered,
     already timed out, or the run never paused in the first place) so
     the route can turn that into a 409 instead of silently no-op'ing."""
     with _lock:
         event = _waiters.get(run_id)
         if event is None:
             return False
-        _answers[run_id] = answer
+        _answers[run_id] = answer if isinstance(answer, dict) else {"decisions": answer}
         event.set()
         return True
 
@@ -85,8 +85,23 @@ class APIPrompt(UserPrompt):
     """Pauses a background run and waits for a human's answer via the
     REST API. One instance is created per run (see jobs.py's _execute)."""
 
-    def __init__(self, run_id: str):
+    def __init__(
+        self,
+        run_id: str,
+        prompt_type: str | None = None,
+        column_name: str | None = None,
+        guessed_field: str | None = None,
+        regulation: str | None = None,
+        confidence: str | None = None,
+        findings: list[dict[str, Any]] | None = None,
+    ):
         self.run_id = run_id
+        self.prompt_type = prompt_type
+        self.column_name = column_name
+        self.guessed_field = guessed_field
+        self.regulation = regulation
+        self.confidence = confidence
+        self.findings = findings or []
         self._current_sheet: str | None = None
         self._pending_header_override: int | None = None
 
@@ -103,6 +118,7 @@ class APIPrompt(UserPrompt):
 
         payload = {
             "type": "header_row",
+            "prompt_type": "HEADER_CONFIRM",
             "sheet_name": self._current_sheet,
             "message": message,
             "detected_header_row": details.get("detected_header_row"),
@@ -142,6 +158,113 @@ class APIPrompt(UserPrompt):
         if not accept:
             self._pending_header_override = answer.get("override_header_row")
         return accept
+
+    def confirm_compliance(
+        self,
+        findings: list[dict[str, Any]] | None = None,
+        *,
+        column_name: str | None = None,
+        guessed_field: str | None = None,
+        regulation: str | None = None,
+        confidence: str | None = None,
+    ) -> dict[str, bool]:
+        """Pauses run for low-confidence compliance findings and waits for human review.
+        Returns a dict mapping column_name -> is_confirmed (bool)."""
+        finding_list: list[dict[str, Any]] = []
+        if findings:
+            finding_list.extend(findings)
+        elif self.findings:
+            finding_list.extend(self.findings)
+        elif column_name or self.column_name:
+            col = column_name or self.column_name
+            g_field = guessed_field or self.guessed_field
+            reg = regulation or self.regulation
+            conf = confidence or self.confidence or "low"
+            finding_list.append({
+                "column_name": col,
+                "guessed_field": g_field,
+                "regulation": reg,
+                "confidence": conf,
+            })
+
+        if not finding_list:
+            return {}
+
+        first_finding = finding_list[0]
+        payload = {
+            "type": "compliance_column",
+            "prompt_type": "COMPLIANCE_COLUMN_CONFIRM",
+            "sheet_name": self._current_sheet,
+            "column_name": first_finding.get("column_name"),
+            "guessed_field": first_finding.get("guessed_field"),
+            "regulation": first_finding.get("regulation"),
+            "confidence": first_finding.get("confidence", "low"),
+            "findings": finding_list,
+        }
+        payload = json_safe(payload)
+
+        event = threading.Event()
+        with _lock:
+            _waiters[self.run_id] = event
+            _answers.pop(self.run_id, None)
+
+        self._set_awaiting(payload)
+
+        answered = event.wait(timeout=CONFIRMATION_TIMEOUT_SECONDS)
+
+        with _lock:
+            _waiters.pop(self.run_id, None)
+            answer = _answers.pop(self.run_id, None)
+
+        if not answered or answer is None:
+            logger.warning(
+                "Run %s: compliance confirmation timed out after %ss; rejecting unconfirmed findings.",
+                self.run_id,
+                CONFIRMATION_TIMEOUT_SECONDS,
+            )
+            self._clear_awaiting()
+            return {f["column_name"]: False for f in finding_list if "column_name" in f}
+
+        # Parse decisions from answer payload
+        decisions: dict[str, bool] = {}
+        if isinstance(answer, dict):
+            # Check if answer contains 'decisions' list or dict
+            raw_decisions = answer.get("decisions")
+            if isinstance(raw_decisions, list):
+                for item in raw_decisions:
+                    if isinstance(item, dict) and "column_name" in item:
+                        col = item["column_name"]
+                        confirmed = item.get("confirmed")
+                        if confirmed is None:
+                            confirmed = item.get("accept")
+                        if confirmed is None and "decision" in item:
+                            confirmed = str(item["decision"]).lower() in (
+                                "confirm", "confirmed", "accept", "accepted", "true", "yes"
+                            )
+                        decisions[col] = bool(confirmed)
+            elif isinstance(raw_decisions, dict):
+                for col, val in raw_decisions.items():
+                    decisions[col] = bool(val)
+            elif "accept" in answer:
+                # Single accept/reject applied to all findings
+                val = bool(answer["accept"])
+                for f in finding_list:
+                    if "column_name" in f:
+                        decisions[f["column_name"]] = val
+            elif "confirmed" in answer:
+                val = bool(answer["confirmed"])
+                for f in finding_list:
+                    if "column_name" in f:
+                        decisions[f["column_name"]] = val
+
+        # Default any unspecified finding to False (rejected)
+        for f in finding_list:
+            col = f.get("column_name")
+            if col and col not in decisions:
+                decisions[col] = False
+
+        self._clear_awaiting()
+        return decisions
 
     def ask_int(self, message: str, default: int | None = None) -> int:  # noqa: ARG002
         # Only reached after confirm() returned False for the header

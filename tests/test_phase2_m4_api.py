@@ -264,7 +264,9 @@ class TestSuccessfulRun:
         """(b) The new standalone compliance report endpoint returns
         correct HIPAA content for a completed run -- never the main
         Phase 2 report endpoint's content."""
-        run_id = _upload_sample(api_client, write_report=True).json()["run_id"]
+        run_id = _upload_sample(
+            api_client, write_report=True, compliance_modules=["HIPAA"]
+        ).json()["run_id"]
         _wait_for_terminal_status(api_client, run_id)
 
         resp = api_client.get(f"/v1/runs/{run_id}/compliance-report")
@@ -279,7 +281,7 @@ class TestSuccessfulRun:
         include_hipaa -- it always reflects the HIPAA analysis for this
         run regardless of what the main report chose to show."""
         run_id = _upload_sample(
-            api_client, write_report=True, include_hipaa=False
+            api_client, write_report=True, include_hipaa=False, compliance_modules=["HIPAA"]
         ).json()["run_id"]
         _wait_for_terminal_status(api_client, run_id)
 

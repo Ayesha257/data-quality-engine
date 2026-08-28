@@ -1,10 +1,11 @@
 """
 Shared column-name fuzzy matching helper -- engine-level re-export.
+The canonical location is backend.engine.utils.fuzzy_matching.
 """
 
 from __future__ import annotations
 
-from backend.compliance.fuzzy_columns import (
+from backend.engine.utils.fuzzy_matching import (
     DEFAULT_FUZZY_THRESHOLD,
     column_matches_keywords,
     find_matching_columns,

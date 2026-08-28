@@ -1,6 +1,5 @@
 """
-Shared column-name fuzzy matching helper -- backward-compatibility re-export.
-The canonical location is backend.engine.utils.fuzzy_matching.
+Utility modules for data quality engine.
 """
 
 from __future__ import annotations

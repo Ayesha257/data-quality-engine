@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import text as sql_text
 
@@ -27,6 +27,9 @@ from backend.schemas.api import (
     EntityResolutionAnalyzeResponse,
     EntityResolutionResultsResponse,
     EntityResolutionSheetResult,
+    ComplianceConfirmRequest,
+    ComplianceConfirmResponse,
+    ComplianceDecision,
     FileUploadResponse,
     RuleDryRunResponse,
     RuleSaveRequest,
@@ -91,6 +94,7 @@ def health_check() -> dict[str, Any]:
 
 @router.post("/v1/files/upload", response_model=FileUploadResponse, status_code=202)
 async def upload_file(
+    request: Request,
     client_id: str = Query(..., description="Which client this run belongs to"),
     authenticated_client_id: str = Depends(resolve_api_key),
     file: UploadFile = File(...),
@@ -119,6 +123,11 @@ async def upload_file(
         description="If true, pause and wait for a human to confirm each sheet's "
         "detected header row via POST /v1/runs/{run_id}/confirm instead of "
         "auto-accepting it (default: False, same behavior as before).",
+    ),
+    compliance_modules: list[str] | None = Query(
+        None,
+        description="Opt-in compliance detectors to run: HIPAA, PCI_DSS, GLBA, SOX. "
+        "Default is none — detectors do not run unless listed.",
     ),
 ) -> FileUploadResponse:
     """
@@ -171,6 +180,24 @@ async def upload_file(
         session.flush()
         created_at = run.started_at
 
+    from backend.engine.compliance.opt_in import normalize_compliance_modules
+
+    raw_modules: list[str] = []
+    if compliance_modules:
+        if isinstance(compliance_modules, (list, tuple, set)):
+            raw_modules.extend(str(m) for m in compliance_modules if m is not None)
+        else:
+            raw_modules.append(str(compliance_modules))
+
+    for qk, qv in request.query_params.multi_items():
+        if qk in ("compliance_modules", "compliance_modules[]") or qk.startswith("compliance_modules["):
+            if qv:
+                raw_modules.append(qv)
+
+    selected_modules = normalize_compliance_modules(
+        raw_modules, include_hipaa=include_hipaa
+    )
+
     jobs.enqueue_run(
         run_id=run_id,
         file_path=str(dest_path),
@@ -182,6 +209,7 @@ async def upload_file(
         gemini_api_key=gemini_api_key,
         include_hipaa=include_hipaa,
         interactive=interactive,
+        compliance_modules=selected_modules,
     )
 
     return FileUploadResponse(
@@ -340,7 +368,7 @@ def get_run_status(
 @router.post("/v1/runs/{run_id}/confirm", response_model=RunConfirmResponse)
 def confirm_run(
     run_id: str,
-    body: RunConfirmRequest,
+    body: RunConfirmRequest | dict[str, Any],
     authenticated_client_id: str = Depends(resolve_api_key),
 ) -> RunConfirmResponse:
     """
@@ -349,9 +377,8 @@ def confirm_run(
 
     Only valid while the run's status is "awaiting_confirmation" (i.e. it
     was started with interactive=true and is paused at a sheet's
-    header-row checkpoint -- see engine/api_prompt.py). Wakes the paused
-    background thread, which resumes the pipeline for that sheet and, for
-    a multi-sheet file, may pause again at the next sheet's checkpoint.
+    header-row checkpoint or compliance checkpoint -- see engine/api_prompt.py).
+    Wakes the paused background thread.
     """
     run = _get_run_or_404(run_id)
     require_client_access(authenticated_client_id, run.client_id)
@@ -361,20 +388,37 @@ def confirm_run(
             409,
             f"Run '{run_id}' is not awaiting confirmation (status={run.status.value}).",
         )
-    if not body.accept and body.override_header_row is None:
-        raise HTTPException(
-            422, "override_header_row is required when accept is false."
+
+    # Check if pending confirmation is compliance-related
+    pending = run.pending_confirmation or {}
+    prompt_type = pending.get("prompt_type") or pending.get("type")
+
+    if prompt_type in ("COMPLIANCE_COLUMN_CONFIRM", "compliance_column"):
+        decisions = []
+        if isinstance(body, dict):
+            decisions = body.get("decisions", [])
+        elif hasattr(body, "decisions"):
+            decisions = getattr(body, "decisions")
+        elif hasattr(body, "accept"):
+            decisions = [{"accept": body.accept}]
+        resolved = api_prompt.submit_answer(run_id, {"decisions": decisions})
+    else:
+        accept = body.accept if hasattr(body, "accept") else body.get("accept", True)
+        override_header_row = (
+            body.override_header_row
+            if hasattr(body, "override_header_row")
+            else body.get("override_header_row")
+        )
+        if not accept and override_header_row is None:
+            raise HTTPException(
+                422, "override_header_row is required when accept is false."
+            )
+        resolved = api_prompt.submit_answer(
+            run_id,
+            {"accept": accept, "override_header_row": override_header_row},
         )
 
-    resolved = api_prompt.submit_answer(
-        run_id,
-        {"accept": body.accept, "override_header_row": body.override_header_row},
-    )
     if not resolved:
-        # The checkpoint's wait already timed out (or this run never
-        # actually paused) between the status the client saw and this
-        # request landing -- report that plainly rather than pretending
-        # the answer was applied.
         raise HTTPException(
             409,
             f"Run '{run_id}' is no longer waiting on a confirmation "
@@ -383,16 +427,137 @@ def confirm_run(
 
     with get_session() as session:
         run = session.get(RunRecord, run_id)
-        # APIPrompt flips this back to RUNNING itself once its wait()
-        # unblocks, but set it here too so the response the caller gets
-        # back reflects the resumed state immediately rather than a
-        # possible one-tick-stale AWAITING_CONFIRMATION if they poll
-        # status before the worker thread has woken up.
         if run is not None and run.status == RunStatus.AWAITING_CONFIRMATION:
             run.status = RunStatus.RUNNING
         status = run.status if run is not None else RunStatus.RUNNING
 
     return RunConfirmResponse(run_id=run_id, status=status)
+
+
+@router.post("/v1/runs/{run_id}/compliance-confirm", response_model=ComplianceConfirmResponse)
+@router.post("/v1/runs/{run_id}/compliance/confirm", response_model=ComplianceConfirmResponse)
+def confirm_compliance_run(
+    run_id: str,
+    body: ComplianceConfirmRequest | list[dict[str, Any]] | dict[str, Any],
+    authenticated_client_id: str = Depends(resolve_api_key),
+) -> ComplianceConfirmResponse:
+    """
+    Submit confirm/reject decisions for pending low-confidence compliance findings
+    (prompt_type="COMPLIANCE_COLUMN_CONFIRM").
+    """
+    run = _get_run_or_404(run_id)
+    require_client_access(authenticated_client_id, run.client_id)
+
+    if run.status != RunStatus.AWAITING_CONFIRMATION:
+        raise HTTPException(
+            409,
+            f"Run '{run_id}' is not awaiting confirmation (status={run.status.value}).",
+        )
+
+    decisions: list[Any] = []
+    if isinstance(body, list):
+        decisions = body
+    elif isinstance(body, dict):
+        decisions = body.get("decisions", [])
+    elif hasattr(body, "decisions"):
+        raw = getattr(body, "decisions")
+        if isinstance(raw, list):
+            decisions = [
+                d.model_dump() if hasattr(d, "model_dump") else d for d in raw
+            ]
+        elif isinstance(raw, dict):
+            decisions = [{"column_name": k, "confirmed": v} for k, v in raw.items()]
+
+    resolved = api_prompt.submit_answer(
+        run_id,
+        {"decisions": decisions},
+    )
+    if not resolved:
+        raise HTTPException(
+            409,
+            f"Run '{run_id}' is no longer waiting on a confirmation "
+            "(it may have timed out or already been answered).",
+        )
+
+    # Convert decisions to map: column_name -> confirmed (bool)
+    decision_map: dict[str, bool] = {}
+    for d in decisions:
+        if isinstance(d, dict) and "column_name" in d:
+            col = d["column_name"]
+            c_val = d.get("confirmed")
+            if c_val is None:
+                c_val = d.get("accept")
+            if c_val is None and "decision" in d:
+                c_val = str(d["decision"]).lower() in ("confirm", "confirmed", "accept", "true", "yes")
+            decision_map[col] = bool(c_val)
+
+    with get_session() as session:
+        run = session.get(RunRecord, run_id)
+        if run is not None and run.status == RunStatus.AWAITING_CONFIRMATION:
+            run.status = RunStatus.RUNNING
+        manifest = session.query(RunManifest).filter(RunManifest.run_id == run_id).one_or_none()
+        if manifest is not None:
+            extra = dict(manifest.extra or {})
+            prev = extra.get("compliance_decisions", {})
+            prev.update(decision_map)
+            extra["compliance_decisions"] = prev
+            manifest.extra = extra
+        else:
+            session.add(
+                RunManifest(
+                    run_id=run_id,
+                    checks_run=[],
+                    ruleset_snapshot={},
+                    extra={"compliance_decisions": decision_map},
+                )
+            )
+        status = run.status if run is not None else RunStatus.RUNNING
+
+    return ComplianceConfirmResponse(
+        run_id=run_id,
+        status=status,
+        resolved_count=len(decisions),
+    )
+
+
+@router.get("/v1/runs/{run_id}/compliance-confirmations")
+@router.get("/v1/runs/{run_id}/compliance/pending")
+def get_compliance_confirmations(
+    run_id: str,
+    authenticated_client_id: str = Depends(resolve_api_key),
+) -> dict[str, Any]:
+    """
+    Fetch any pending compliance HITL confirmations for the current run.
+    """
+    run = _get_run_or_404(run_id)
+    require_client_access(authenticated_client_id, run.client_id)
+
+    if run.status != RunStatus.AWAITING_CONFIRMATION or not run.pending_confirmation:
+        return {
+            "run_id": run_id,
+            "status": run.status.value,
+            "pending": False,
+            "findings": [],
+        }
+
+    pending = run.pending_confirmation
+    findings = pending.get("findings", [])
+    if not findings and pending.get("column_name"):
+        findings = [{
+            "column_name": pending.get("column_name"),
+            "guessed_field": pending.get("guessed_field"),
+            "regulation": pending.get("regulation"),
+            "confidence": pending.get("confidence", "low"),
+        }]
+
+    return {
+        "run_id": run_id,
+        "status": run.status.value,
+        "pending": True,
+        "prompt_type": pending.get("prompt_type", "COMPLIANCE_COLUMN_CONFIRM"),
+        "sheet_name": pending.get("sheet_name"),
+        "findings": findings,
+    }
 
 
 @router.delete("/v1/runs/{run_id}", status_code=204)
@@ -428,6 +593,13 @@ def delete_run(
                     if p:
                         files_to_delete.append(Path(p))
 
+        # Also clean up any regulation compliance reports generated for this file
+        stem = Path(run.file_name).stem
+        reports_dir = Path(SETTINGS.get("reports_dir", "reports"))
+        if reports_dir.exists():
+            for f in reports_dir.glob(f"{stem}_*_compliance_report.html"):
+                files_to_delete.append(f)
+
         run_in_db = session.get(RunRecord, run_id)
         if run_in_db is not None:
             session.delete(run_in_db)
@@ -461,13 +633,17 @@ def get_run_results(
     require_client_access(authenticated_client_id, run.client_id)
 
     sheets: list[SheetResult] = []
+    run_modules: list[str] = []
     with get_session() as session:
         manifest = (
             session.query(RunManifest).filter(RunManifest.run_id == run_id).one_or_none()
         )
-        if manifest is not None:
-            for entry in (manifest.extra or {}).get("sheets", []):
+        if manifest is not None and manifest.extra:
+            run_modules = list(manifest.extra.get("compliance_modules") or [])
+            for entry in manifest.extra.get("sheets", []):
                 sheets.append(SheetResult(**entry))
+                if not run_modules and entry.get("compliance_modules"):
+                    run_modules = list(entry["compliance_modules"])
 
     return RunResultsResponse(
         run_id=run.id,
@@ -479,6 +655,7 @@ def get_run_results(
         cols_processed=run.cols_processed,
         dimension_scores=run.dimension_scores,
         sheets=sheets,
+        compliance_modules=run_modules,
         error_message=run.error_message,
     )
 
@@ -576,34 +753,37 @@ def get_run_report_pdf(
 def get_run_compliance_report(
     run_id: str,
     sheet_name: str | None = None,
+    regulation: str = Query("HIPAA", description="Compliance framework: HIPAA, PCI_DSS, GLBA, or SOX"),
     authenticated_client_id: str = Depends(resolve_api_key),
 ) -> FileResponse:
     """
     Download the standalone Compliance Report for a completed run.
 
-    This is a separate report from GET /v1/runs/{run_id}/report -- it
-    contains compliance findings only (currently HIPAA; structured to grow
-    additional regulation sections later, see
-    engine/compliance/report.py), regardless of whether the main report's
-    own include_hipaa flag was used to include or omit its HIPAA section
-    at upload time. Same lookup/auth/scoping pattern as get_run_report,
-    just keyed on `compliance_report_path`.
+    Supports regulation parameter: HIPAA (default), PCI_DSS, GLBA, or SOX.
     """
     run = _get_run_or_404(run_id)
     require_client_access(authenticated_client_id, run.client_id)
     if run.status != RunStatus.COMPLETED:
         raise HTTPException(409, f"Run is '{run.status.value}', not completed yet.")
 
+    reg_norm = str(regulation or "HIPAA").upper().replace("-", "_")
+
     with get_session() as session:
         manifest = (
             session.query(RunManifest).filter(RunManifest.run_id == run_id).one_or_none()
         )
         sheet_entries = (manifest.extra or {}).get("sheets", []) if manifest else []
+        compliance_decisions = (manifest.extra or {}).get("compliance_decisions", {}) if manifest else {}
+        selected_modules = list((manifest.extra or {}).get("compliance_modules") or [])
+        if not selected_modules:
+            for s in sheet_entries:
+                if isinstance(s, dict) and s.get("compliance_modules"):
+                    selected_modules = list(s["compliance_modules"])
+                    break
 
     candidates = [
         s for s in sheet_entries
-        if s.get("compliance_report_path")
-        and (sheet_name is None or s.get("sheet_name") == sheet_name)
+        if s.get("report_path") and (sheet_name is None or s.get("sheet_name") == sheet_name)
     ]
     if not candidates:
         raise HTTPException(
@@ -613,11 +793,74 @@ def get_run_compliance_report(
             + ". Was write_report=True passed at upload time?",
         )
 
-    report_path = Path(candidates[0]["compliance_report_path"])
-    if not report_path.exists():
-        raise HTTPException(410, f"Compliance report file no longer exists on disk: {report_path}")
+    if reg_norm not in selected_modules:
+        raise HTTPException(
+            404,
+            f"Compliance module '{reg_norm}' was not selected for this scan. "
+            f"Selected: {selected_modules or 'none'}.",
+        )
 
-    return FileResponse(report_path, media_type="text/html", filename=report_path.name)
+    # Sole writer for compliance HTML. Scan-time generation of a leftover
+    # HIPAA-only "{stem}_{sheet}_compliance_report.html" was removed from
+    # run_pipeline -- that file had no regulation in the name, so a PCI/GLBA/
+    # SOX request produced two reports (stale HIPAA + the requested one).
+    from backend.engine.compliance.report import build_compliance_report_data, generate_compliance_html_report
+
+    target_sheet = candidates[0] if candidates else (sheet_entries[0] if sheet_entries else {})
+    sname = sheet_name or target_sheet.get("sheet_name", "Sheet1")
+    stem = Path(run.file_name).stem
+    safe_sheet = "".join(c if c.isalnum() else "_" for c in sname)
+    reports_dir = Path(SETTINGS.get("reports_dir", "reports"))
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    # Regulation is always in the filename. Never write the unparameterized
+    # "{stem}_{sheet}_compliance_report.html" path used by the old pipeline helper.
+    reg_report_path = reports_dir / f"{stem}_{safe_sheet}_{reg_norm.lower()}_compliance_report.html"
+
+    stored_scan = (target_sheet.get("compliance_scans") or {}).get(reg_norm) if isinstance(target_sheet, dict) else None
+
+    df = None
+    upload_dir = jobs.uploads_dir() / run_id
+    if not upload_dir.exists():
+        alt = jobs.uploads_dir() / run_id.replace("-", "")
+        if alt.exists():
+            upload_dir = alt
+
+    # Reuse scan-time financial results so GET does not re-run detectors.
+    # HIPAA still needs the dataframe (or modules) for its existing builder.
+    if not stored_scan or reg_norm == "HIPAA":
+        uploaded_files = list(upload_dir.glob("*")) if upload_dir.exists() else []
+        if uploaded_files:
+            src_file = uploaded_files[0]
+            try:
+                from backend.engine.ingestion import read_excel_file, load_with_confirmed_header
+                import pandas as pd
+
+                if src_file.suffix.lower() == ".csv":
+                    df = pd.read_csv(src_file)
+                else:
+                    raw_sheets = read_excel_file(str(src_file))
+                    raw_df = raw_sheets[sname] if sname in raw_sheets else next(iter(raw_sheets.values()))
+                    header_row = target_sheet.get("header_row", 0)
+                    if header_row is None:
+                        header_row = 0
+                    df = load_with_confirmed_header(raw_df, header_row)
+            except Exception:
+                pass
+
+    report_data = build_compliance_report_data(
+        filepath=str((upload_dir / run.file_name) if upload_dir.exists() else run.file_name),
+        sheet_name=sname,
+        row_count=len(df) if df is not None else (run.rows_processed or 0),
+        column_count=df.shape[1] if df is not None else (run.cols_processed or 0),
+        regulation=reg_norm,
+        df=df,
+        confidence_tiers=(stored_scan or {}).get("confidence_tiers") if stored_scan else None,
+        resolved_findings=(stored_scan or {}).get("resolved_findings") if stored_scan else None,
+        resolved_decisions=compliance_decisions,
+    )
+    generate_compliance_html_report(report_data, str(reg_report_path))
+
+    return FileResponse(reg_report_path, media_type="text/html", filename=reg_report_path.name)
 
 
 # ---------------------------------------------------------------------------
@@ -748,10 +991,22 @@ def list_client_runs(
         for r in runs:
             manifest = session.query(RunManifest).filter(RunManifest.run_id == r.id).one_or_none()
             has_comp = False
+            modules: list[str] = []
             if manifest and manifest.extra:
                 sheets = manifest.extra.get("sheets", [])
-                has_comp = any(bool(s.get("compliance_report_path")) for s in sheets if isinstance(s, dict))
+                modules = list(manifest.extra.get("compliance_modules") or [])
+                if not modules:
+                    for s in sheets:
+                        if isinstance(s, dict) and s.get("compliance_modules"):
+                            modules = list(s["compliance_modules"])
+                            break
+                has_comp = bool(modules) and any(
+                    bool(s.get("report_path")) or bool(s.get("compliance_report_path"))
+                    for s in sheets
+                    if isinstance(s, dict)
+                )
             s_obj = RunSummary.model_validate(r)
             s_obj.has_compliance_report = has_comp
+            s_obj.compliance_modules = modules
             summaries.append(s_obj)
     return RunListResponse(client_id=client_id, runs=summaries)

@@ -20,6 +20,8 @@ export default function UploadPage() {
   const [checkPci, setCheckPci] = useState(false);
   const [checkGlba, setCheckGlba] = useState(false);
   const [checkSox, setCheckSox] = useState(false);
+  const [checkGdpr, setCheckGdpr] = useState(false);
+  const [checkCcpa, setCheckCcpa] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -44,6 +46,8 @@ export default function UploadPage() {
         if (checkPci) complianceModules.push("PCI_DSS");
         if (checkGlba) complianceModules.push("GLBA");
         if (checkSox) complianceModules.push("SOX");
+        if (checkGdpr) complianceModules.push("GDPR");
+        if (checkCcpa) complianceModules.push("CCPA");
       }
       const res = await api.uploadFile({
         clientId,
@@ -109,45 +113,48 @@ export default function UploadPage() {
                     value={targetColumn}
                     onChange={(e) => setTargetColumn(e.target.value)}
                   />
+                  <p className="field-hint">For ML readiness. Pair with date column.</p>
                 </div>
                 <div>
                   <label className="field-label">Date column</label>
                   <input
                     className="field-input"
-                    placeholder="e.g. order_date"
+                    placeholder="e.g. signup_date"
                     value={dateColumn}
                     onChange={(e) => setDateColumn(e.target.value)}
                   />
+                  <p className="field-hint">Time dimension for ML readiness.</p>
                 </div>
-                <p className="field-hint sm:col-span-2 -mt-2">
-                  Supply both to run a forecast-readiness check on that sheet. Use the exact
-                  column header from your file; target must be numeric and date must parse as
-                  dates.
-                </p>
               </div>
               <div className="sm:col-span-2">
-                <label className="field-label">AI explanation key (optional)</label>
+                <label className="field-label">Gemini API key</label>
                 <input
-                  className="field-input font-mono"
                   type="password"
-                  placeholder="uses server default if left blank"
+                  className="field-input font-mono text-xs"
+                  placeholder="AIzaSy... (optional, falls back to server env)"
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
+                  autoComplete="off"
                 />
+                <p className="field-hint">
+                  Used only for Inspect-button explanations on the report.
+                </p>
               </div>
-              <div className="sm:col-span-2 space-y-3 border-t border-ink-700 pt-4">
+              <div className="sm:col-span-2 space-y-3">
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={runCompliance}
                     onChange={(e) => {
-                      const on = e.target.checked;
-                      setRunCompliance(on);
-                      if (!on) {
+                      const v = e.target.checked;
+                      setRunCompliance(v);
+                      if (!v) {
                         setCheckHipaa(false);
                         setCheckPci(false);
                         setCheckGlba(false);
                         setCheckSox(false);
+                        setCheckGdpr(false);
+                        setCheckCcpa(false);
                       }
                     }}
                     className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
@@ -155,7 +162,7 @@ export default function UploadPage() {
                   <span className="text-sm text-mist-200">
                     Run Compliance Checks
                     <span className="block text-xs text-mist-400 mt-0.5">
-                      Off by default. When off, no HIPAA or financial detectors run.
+                      Off by default. When off, no compliance detectors run.
                     </span>
                   </span>
                 </label>
@@ -224,6 +231,41 @@ export default function UploadPage() {
                             SOX
                             <span className="block text-xs text-mist-400 mt-0.5">
                               Checks audit-trail columns and transaction timestamps.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wider text-mist-400 mb-2">
+                        Privacy Compliance
+                      </p>
+                      <div className="space-y-2">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checkGdpr}
+                            onChange={(e) => setCheckGdpr(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                          />
+                          <span className="text-sm text-mist-300">
+                            GDPR
+                            <span className="block text-xs text-mist-400 mt-0.5">
+                              Scans for personal identifiers, SSNs, IPs, and geolocation data.
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checkCcpa}
+                            onChange={(e) => setCheckCcpa(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-ink-600 bg-ink-800 text-teal-500 focus:ring-teal-500/40"
+                          />
+                          <span className="text-sm text-mist-300">
+                            CCPA
+                            <span className="block text-xs text-mist-400 mt-0.5">
+                              Detects California consumer personal info, identifiers, and locations.
                             </span>
                           </span>
                         </label>

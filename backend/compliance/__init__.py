@@ -26,6 +26,12 @@ from backend.compliance.financial_compliance import (
     scan_pci_dss_findings,
     scan_sox_findings,
 )
+from backend.compliance.privacy_compliance import (
+    run_privacy_scan,
+    scan_ccpa_findings,
+    scan_gdpr_findings,
+    scan_privacy_findings,
+)
 
 __all__ = [
     "detect_pan",
@@ -39,6 +45,10 @@ __all__ = [
     "scan_pci_dss_findings",
     "scan_glba_findings",
     "scan_sox_findings",
+    "run_privacy_scan",
+    "scan_gdpr_findings",
+    "scan_ccpa_findings",
+    "scan_privacy_findings",
     "normalize_column_name",
     "column_matches_keywords",
     "find_matching_columns",

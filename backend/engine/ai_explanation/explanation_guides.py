@@ -448,6 +448,207 @@ CHECK_GUIDE: dict[str, dict[str, str]] = {
             "Ensure every financial event has a reliable timestamp from the source system, not a blank or placeholder."
         ),
     },
+    "ssn": {
+        "what_it_means": (
+            "A Social Security Number is a direct, highly sensitive government-issued identifier. "
+            "Under GDPR and CCPA, unmasked SSNs pose severe identity theft, fraud, and regulatory non-compliance risks."
+        ),
+        "how_we_check": (
+            "We validate 9-digit sequences against valid US SSN area, group, and serial number rules, masking all but the last 4 digits."
+        ),
+        "fix_hints": (
+            "Mask SSNs to the last 4 digits (e.g. ***-**-1234), store only in encrypted vaults, and never export raw numbers into unmanaged files."
+        ),
+    },
+    "gdpr_ssn": {
+        "what_it_means": (
+            "A Social Security Number is a direct, highly sensitive government-issued identifier. "
+            "Under GDPR and CCPA, unmasked SSNs pose severe identity theft, fraud, and regulatory non-compliance risks."
+        ),
+        "how_we_check": (
+            "We validate 9-digit sequences against valid US SSN area, group, and serial number rules, masking all but the last 4 digits."
+        ),
+        "fix_hints": (
+            "Mask SSNs to the last 4 digits (e.g. ***-**-1234), store only in encrypted vaults, and never export raw numbers into unmanaged files."
+        ),
+    },
+    "ccpa_ssn": {
+        "what_it_means": (
+            "A Social Security Number is a direct, highly sensitive government-issued identifier. "
+            "Under GDPR and CCPA, unmasked SSNs pose severe identity theft, fraud, and regulatory non-compliance risks."
+        ),
+        "how_we_check": (
+            "We validate 9-digit sequences against valid US SSN area, group, and serial number rules, masking all but the last 4 digits."
+        ),
+        "fix_hints": (
+            "Mask SSNs to the last 4 digits (e.g. ***-**-1234), store only in encrypted vaults, and never export raw numbers into unmanaged files."
+        ),
+    },
+    "national_id": {
+        "what_it_means": (
+            "National identity numbers are direct government-issued identifiers subject to strict privacy safeguards under GDPR Article 87 and CCPA."
+        ),
+        "how_we_check": (
+            "We scan values for structured national identity number formats (e.g. CNIC) and mask sensitive middle digits."
+        ),
+        "fix_hints": (
+            "Pseudonymize or mask national IDs before analytical processing and enforce role-based access controls."
+        ),
+    },
+    "gdpr_national_id": {
+        "what_it_means": (
+            "National identity numbers are direct government-issued identifiers subject to strict privacy safeguards under GDPR Article 87 and CCPA."
+        ),
+        "how_we_check": (
+            "We scan values for structured national identity number formats (e.g. CNIC) and mask sensitive middle digits."
+        ),
+        "fix_hints": (
+            "Pseudonymize or mask national IDs before analytical processing and enforce role-based access controls."
+        ),
+    },
+    "ccpa_national_id": {
+        "what_it_means": (
+            "National identity numbers are direct government-issued identifiers subject to strict privacy safeguards under GDPR Article 87 and CCPA."
+        ),
+        "how_we_check": (
+            "We scan values for structured national identity number formats (e.g. CNIC) and mask sensitive middle digits."
+        ),
+        "fix_hints": (
+            "Pseudonymize or mask national IDs before analytical processing and enforce role-based access controls."
+        ),
+    },
+    "email": {
+        "what_it_means": (
+            "Email addresses represent direct personal contact data identifying individual data subjects under GDPR and consumers under CCPA."
+        ),
+        "how_we_check": (
+            "We match standard RFC email address patterns and mask local parts in preview samples."
+        ),
+        "fix_hints": (
+            "Hash or tokenize email addresses when exporting datasets for analysis, and ensure consent / opt-out preferences are respected."
+        ),
+    },
+    "gdpr_email": {
+        "what_it_means": (
+            "Email addresses represent direct personal contact data identifying individual data subjects under GDPR and consumers under CCPA."
+        ),
+        "how_we_check": (
+            "We match standard RFC email address patterns and mask local parts in preview samples."
+        ),
+        "fix_hints": (
+            "Hash or tokenize email addresses when exporting datasets for analysis, and ensure consent / opt-out preferences are respected."
+        ),
+    },
+    "ccpa_email": {
+        "what_it_means": (
+            "Email addresses represent direct personal contact data identifying individual data subjects under GDPR and consumers under CCPA."
+        ),
+        "how_we_check": (
+            "We match standard RFC email address patterns and mask local parts in preview samples."
+        ),
+        "fix_hints": (
+            "Hash or tokenize email addresses when exporting datasets for analysis, and ensure consent / opt-out preferences are respected."
+        ),
+    },
+    "ip_address": {
+        "what_it_means": (
+            "IP addresses are online identifiers considered personal data under GDPR (Recital 30) and personal information under CCPA."
+        ),
+        "how_we_check": (
+            "We validate IPv4 and IPv6 network address structures and valid octet ranges."
+        ),
+        "fix_hints": (
+            "Anonymize IP addresses (e.g., zero out the last octet for IPv4) and apply automated log retention schedules."
+        ),
+    },
+    "gdpr_ip_address": {
+        "what_it_means": (
+            "IP addresses are online identifiers considered personal data under GDPR (Recital 30) and personal information under CCPA."
+        ),
+        "how_we_check": (
+            "We validate IPv4 and IPv6 network address structures and valid octet ranges."
+        ),
+        "fix_hints": (
+            "Anonymize IP addresses (e.g., zero out the last octet for IPv4) and apply automated log retention schedules."
+        ),
+    },
+    "ccpa_ip_address": {
+        "what_it_means": (
+            "IP addresses are online identifiers considered personal data under GDPR (Recital 30) and personal information under CCPA."
+        ),
+        "how_we_check": (
+            "We validate IPv4 and IPv6 network address structures and valid octet ranges."
+        ),
+        "fix_hints": (
+            "Anonymize IP addresses (e.g., zero out the last octet for IPv4) and apply automated log retention schedules."
+        ),
+    },
+    "date_of_birth": {
+        "what_it_means": (
+            "Date of birth is personal demographic data that, when combined with other attributes, enables individual re-identification."
+        ),
+        "how_we_check": (
+            "We dual-gate on birth-related column headers and valid date values, avoiding operational system timestamps."
+        ),
+        "fix_hints": (
+            "Generalize exact birth dates to age bands or birth years, and restrict access unless exact birth date is legally mandatory."
+        ),
+    },
+    "gdpr_date_of_birth": {
+        "what_it_means": (
+            "Date of birth is personal demographic data that, when combined with other attributes, enables individual re-identification."
+        ),
+        "how_we_check": (
+            "We dual-gate on birth-related column headers and valid date values, avoiding operational system timestamps."
+        ),
+        "fix_hints": (
+            "Generalize exact birth dates to age bands or birth years, and restrict access unless exact birth date is legally mandatory."
+        ),
+    },
+    "ccpa_date_of_birth": {
+        "what_it_means": (
+            "Date of birth is personal demographic data that, when combined with other attributes, enables individual re-identification."
+        ),
+        "how_we_check": (
+            "We dual-gate on birth-related column headers and valid date values, avoiding operational system timestamps."
+        ),
+        "fix_hints": (
+            "Generalize exact birth dates to age bands or birth years, and restrict access unless exact birth date is legally mandatory."
+        ),
+    },
+    "full_name_geolocation": {
+        "what_it_means": (
+            "Combining an individual's name with precise geolocation or address information establishes direct personal data linkage under GDPR and CCPA."
+        ),
+        "how_we_check": (
+            "We detect the simultaneous presence of person name columns and geolocation/address columns in dataset headers."
+        ),
+        "fix_hints": (
+            "Decouple identity keys from location coordinates, aggregate location to postal district or city level, and verify user consent."
+        ),
+    },
+    "gdpr_full_name_geolocation": {
+        "what_it_means": (
+            "Combining an individual's name with precise geolocation or address information establishes direct personal data linkage under GDPR and CCPA."
+        ),
+        "how_we_check": (
+            "We detect the simultaneous presence of person name columns and geolocation/address columns in dataset headers."
+        ),
+        "fix_hints": (
+            "Decouple identity keys from location coordinates, aggregate location to postal district or city level, and verify user consent."
+        ),
+    },
+    "ccpa_full_name_geolocation": {
+        "what_it_means": (
+            "Combining an individual's name with precise geolocation or address information establishes direct personal data linkage under GDPR and CCPA."
+        ),
+        "how_we_check": (
+            "We detect the simultaneous presence of person name columns and geolocation/address columns in dataset headers."
+        ),
+        "fix_hints": (
+            "Decouple identity keys from location coordinates, aggregate location to postal district or city level, and verify user consent."
+        ),
+    },
     "sox_audit_trail_headers": {
         "what_it_means": (
             "SOX-relevant files should show who created or approved a record and when it last changed, "

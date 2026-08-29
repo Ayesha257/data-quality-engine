@@ -9,6 +9,8 @@ about *what's inside* the file is Phase 1/M2/M3's job, not this layer's.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -818,6 +820,33 @@ def get_run_compliance_report(
 
     stored_scan = (target_sheet.get("compliance_scans") or {}).get(reg_norm) if isinstance(target_sheet, dict) else None
 
+    # --- Cache check -------------------------------------------------
+    # This endpoint used to rebuild the report (and, for HIPAA, re-read and
+    # re-parse the entire source file from disk) on EVERY GET request, even
+    # when nothing about the run had changed since the last time it was
+    # generated. That made "opening" an already-viewed report as slow as
+    # generating it fresh. A report is only invalidated by two things: the
+    # underlying scan data (stored_scan) or the user's HITL confirm/reject
+    # decisions (compliance_decisions) -- so we fingerprint both and skip
+    # regeneration when the fingerprint on disk still matches.
+    cache_meta_path = reg_report_path.with_suffix(reg_report_path.suffix + ".meta.json")
+    cache_signature = hashlib.sha256(
+        json.dumps(
+            {"stored_scan": stored_scan, "decisions": compliance_decisions},
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    if reg_report_path.exists() and cache_meta_path.exists():
+        try:
+            cached_signature = json.loads(cache_meta_path.read_text(encoding="utf-8")).get("signature")
+        except Exception:
+            cached_signature = None
+        if cached_signature == cache_signature:
+            return FileResponse(reg_report_path, media_type="text/html", filename=reg_report_path.name)
+    # --- End cache check -----------------------------------------------
+
     df = None
     upload_dir = jobs.uploads_dir() / run_id
     if not upload_dir.exists():
@@ -859,6 +888,7 @@ def get_run_compliance_report(
         resolved_decisions=compliance_decisions,
     )
     generate_compliance_html_report(report_data, str(reg_report_path))
+    cache_meta_path.write_text(json.dumps({"signature": cache_signature}), encoding="utf-8")
 
     return FileResponse(reg_report_path, media_type="text/html", filename=reg_report_path.name)
 

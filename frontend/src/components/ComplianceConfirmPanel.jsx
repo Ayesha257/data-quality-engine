@@ -60,7 +60,7 @@ export default function ComplianceConfirmPanel({ confirmation, onConfirm, submit
             Confirm Compliance Findings{confirmation.sheet_name ? ` — ${confirmation.sheet_name}` : ""}
           </h2>
           <p className="text-sm text-mist-400 mt-1">
-            Low-confidence financial compliance candidates were detected based on column naming heuristics.
+            Compliance candidate findings require human verification before being finalized for the report.
             Please review each finding below and decide whether to confirm or reject it for report inclusion.
           </p>
         </div>
@@ -82,7 +82,8 @@ export default function ComplianceConfirmPanel({ confirmation, onConfirm, submit
               {rawFindings.map((finding) => {
                 const col = finding.column_name;
                 const isConfirmed = Boolean(decisions[col]);
-                const regLabel = String(finding.regulation || "Financial").replace("_", "-");
+                const regLabel = String(finding.regulation || "Compliance").replace("_", "-");
+                const confLabel = finding.confidence === "medium" ? "Medium" : "Low (Heuristic)";
 
                 return (
                   <tr
@@ -104,7 +105,7 @@ export default function ComplianceConfirmPanel({ confirmation, onConfirm, submit
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px]">
-                        Low (Heuristic)
+                        {confLabel}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap text-right">

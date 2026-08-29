@@ -248,11 +248,20 @@ def run_compliance_scan(
     resolved_decisions: dict[str, bool] | None = None,
 ) -> dict[str, Any]:
     """
-    Scans DataFrame for the specified regulation (PCI_DSS, GLBA, or SOX),
-    handles HITL confirmation for low-confidence findings via prompt,
-    and returns resolved findings grouped into confidence tiers.
+    Scans DataFrame for the specified financial regulation (PCI_DSS, GLBA, or SOX),
+    or delegates to privacy_compliance for privacy regulations (GDPR, CCPA).
+    Returns resolved findings grouped into confidence tiers.
     """
     reg_norm = str(regulation).upper().replace("-", "_")
+
+    if reg_norm in ("GDPR", "CCPA"):
+        from backend.compliance.privacy_compliance import run_privacy_scan
+        return run_privacy_scan(
+            df,
+            regulation=reg_norm,
+            prompt=prompt,
+            resolved_decisions=resolved_decisions,
+        )
 
     if reg_norm == "PCI_DSS":
         scanned = scan_pci_dss_findings(df)
@@ -269,12 +278,13 @@ def run_compliance_scan(
 
     confirmed: list[dict[str, Any]] = []
 
-    # Process low-confidence findings through HITL if prompt is interactive or pre-resolved decisions provided
+    # Process low-confidence findings through HITL if pre-resolved decisions provided
+    # or prompt is interactive CLI (avoiding blocking automated background API pipelines)
     if low:
         decisions: dict[str, bool] = {}
         if resolved_decisions is not None:
             decisions = resolved_decisions
-        elif prompt is not None and hasattr(prompt, "confirm_compliance"):
+        elif prompt is not None and getattr(prompt, "is_interactive", False) and hasattr(prompt, "confirm_compliance"):
             decisions = prompt.confirm_compliance(low)
 
         for finding in low:
@@ -301,5 +311,5 @@ def run_compliance_scan(
             "Confirmed (User-Verified)": confirmed,
         },
         "resolved_findings": all_resolved,
-        "low_findings_pending": low if (prompt is None and resolved_decisions is None) else [],
+        "low_findings_pending": low if (resolved_decisions is None) else [],
     }

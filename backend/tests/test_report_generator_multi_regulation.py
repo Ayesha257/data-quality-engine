@@ -212,3 +212,87 @@ class TestMultiRegulationReportGenerator:
             assert "inspect-compliance-btn" in html
             assert "openComplianceAiModal" in html
             assert "openComplianceFindingModal" not in html
+
+    def test_gdpr_report_generation(self):
+        """GDPR report generates with correct disclaimer, tiers, and Inspect modal."""
+        df = pd.DataFrame({
+            "full_name": ["Alice", "Bob"],
+            "ssn": ["123-45-6789", "456-78-1234"],
+            "email": ["alice@example.com", "bob@example.com"],
+            "dob": ["1990-05-15", "1985-11-20"],
+            "city": ["Paris", "Berlin"],
+        })
+
+        report_data = build_compliance_report_data(
+            filepath="eu_users.xlsx",
+            sheet_name="Users",
+            row_count=len(df),
+            column_count=df.shape[1],
+            regulation="GDPR",
+            df=df,
+        )
+
+        assert report_data["regulation"] == "GDPR"
+        assert (
+            report_data["disclaimer"]
+            == "This report flags compliance-relevant data patterns. It does not certify legal compliance with GDPR."
+        )
+
+        tiers = report_data["confidence_tiers"]
+        assert len(tiers["High Confidence"]) == 2  # SSN and Email
+        assert len(tiers["Medium Confidence"]) >= 1  # DOB and/or Name+Geo
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = Path(tmpdir) / "gdpr_report.html"
+            generate_compliance_html_report(report_data, str(out_file))
+
+            html = out_file.read_text(encoding="utf-8")
+            assert "GDPR Compliance Report" in html
+            assert "This report flags compliance-relevant data patterns. It does not certify legal compliance with GDPR." in html
+            assert "High Confidence" in html
+            assert "Medium Confidence" in html
+            assert "Social Security Number (SSN)" in html
+            assert "Email Address" in html
+            assert "Date of Birth" in html
+            assert "inspect-compliance-btn" in html
+            assert "openComplianceFindingModal" in html
+
+    def test_ccpa_report_generation(self):
+        """CCPA report generates with correct disclaimer and confidence tiers."""
+        df = pd.DataFrame({
+            "phone_number": ["(415) 555-1234", "(213) 555-6789"],
+            "ip_address": ["192.168.1.1", "10.0.0.1"],
+            "latitude": [37.7749, 34.0522],
+            "longitude": [-122.4194, -118.2437],
+        })
+
+        report_data = build_compliance_report_data(
+            filepath="california_customers.xlsx",
+            sheet_name="Sheet1",
+            row_count=len(df),
+            column_count=df.shape[1],
+            regulation="CCPA",
+            df=df,
+        )
+
+        assert report_data["regulation"] == "CCPA"
+        assert (
+            report_data["disclaimer"]
+            == "This report flags compliance-relevant data patterns. It does not certify legal compliance with CCPA."
+        )
+
+        tiers = report_data["confidence_tiers"]
+        assert len(tiers["High Confidence"]) >= 2  # Phone, IP, and/or Precise Geo
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = Path(tmpdir) / "ccpa_report.html"
+            generate_compliance_html_report(report_data, str(out_file))
+
+            html = out_file.read_text(encoding="utf-8")
+            assert "CCPA Compliance Report" in html
+            assert "This report flags compliance-relevant data patterns. It does not certify legal compliance with CCPA." in html
+            assert "High Confidence" in html
+            assert "Telephone Number" in html
+            assert "inspect-compliance-btn" in html
+            assert "openComplianceFindingModal" in html
+

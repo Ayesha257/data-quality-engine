@@ -1175,21 +1175,25 @@ def run_pipeline(
                 hipaa_summary = None
             print(f"[timing] hipaa_compliance: {time.perf_counter() - hipaa_t0:.3f}s")
 
-            financial_scans: dict = {}
-            fin_t0 = time.perf_counter()
-            financial_wanted = [m for m in selected_modules if m in ("PCI_DSS", "GLBA", "SOX")]
-            if financial_wanted:
+            compliance_scans: dict = {}
+            comp_t0 = time.perf_counter()
+            compliance_wanted = [m for m in selected_modules if m in ("PCI_DSS", "GLBA", "SOX", "GDPR", "CCPA")]
+            if compliance_wanted:
                 from backend.compliance.financial_compliance import run_compliance_scan
+                from backend.compliance.privacy_compliance import run_privacy_scan
 
-                for reg in financial_wanted:
+                for reg in compliance_wanted:
                     one_t0 = time.perf_counter()
-                    financial_scans[reg] = run_compliance_scan(df, reg, prompt=prompt)
+                    if reg in ("GDPR", "CCPA"):
+                        compliance_scans[reg] = run_privacy_scan(df, reg, prompt=prompt)
+                    else:
+                        compliance_scans[reg] = run_compliance_scan(df, reg, prompt=prompt)
                     print(
-                        f"[timing] financial_scan {reg}: {time.perf_counter() - one_t0:.3f}s"
+                        f"[timing] compliance_scan {reg}: {time.perf_counter() - one_t0:.3f}s"
                     )
             else:
-                print("Financial compliance scans skipped: no PCI-DSS/GLBA/SOX selected.")
-            print(f"[timing] financial_compliance_total: {time.perf_counter() - fin_t0:.3f}s")
+                print("Compliance scans skipped: no PCI-DSS/GLBA/SOX/GDPR/CCPA selected.")
+            print(f"[timing] compliance_scans_total: {time.perf_counter() - comp_t0:.3f}s")
             # plan.md Section 4.9 step (g): fuzzy standardization after PII
             fuzzy_summary = _print_fuzzy_standardization_results(df, classification)
             entity_resolution_summary = _print_entity_resolution_results(
@@ -1379,7 +1383,7 @@ def run_pipeline(
             "pdf_report_path": pdf_report_path,
             "compliance_report_path": compliance_report_path,
             "compliance_modules": selected_modules,
-            "compliance_scans": financial_scans,
+            "compliance_scans": compliance_scans,
             "header_row": header_row,
             "entity_resolution": entity_resolution_summary,
             "entity_resolution_auto": (entity_resolution_summary or {}).get("summary", {}).get(

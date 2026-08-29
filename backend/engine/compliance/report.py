@@ -127,10 +127,8 @@ def build_compliance_report_data(
         }
 
     # -----------------------------------------------------------------------
-    # Multi-regulation branch: PCI_DSS / GLBA / SOX
+    # Multi-regulation branch: Privacy (GDPR, CCPA) & Financial (PCI_DSS, GLBA, SOX)
     # -----------------------------------------------------------------------
-    from backend.compliance.financial_compliance import run_compliance_scan
-
     disclaimer = (
         f"This report flags compliance-relevant data patterns. "
         f"It does not certify legal compliance with {regulation}."
@@ -155,12 +153,17 @@ def build_compliance_report_data(
             elif conf in ("confirmed", "low") and (status == "confirmed" or f.get("confirmed") is True):
                 confirmed_findings.append(f)
     elif df is not None:
-        scan_res = run_compliance_scan(
-            df,
-            regulation=regulation,
-            prompt=prompt,
-            resolved_decisions=resolved_decisions,
-        )
+        if reg_upper in ("GDPR", "CCPA"):
+            from backend.compliance.privacy_compliance import run_privacy_scan
+            scan_res = run_privacy_scan(df, regulation=regulation)
+        else:
+            from backend.compliance.financial_compliance import run_compliance_scan
+            scan_res = run_compliance_scan(
+                df,
+                regulation=regulation,
+                prompt=prompt,
+                resolved_decisions=resolved_decisions,
+            )
         tiers = scan_res.get("confidence_tiers", {})
         high_findings = tiers.get("High Confidence", [])
         medium_findings = tiers.get("Medium Confidence", [])
@@ -441,7 +444,7 @@ def _generate_non_hipaa_html_report(report_data: dict[str, Any], output_path: st
                 fid = _finding_inspect_id(f, tier_name)
                 summary = _financial_finding_to_check_summary(f, str(regulation), tier_name)
                 try:
-                    exp = explain_check(summary["check_name"], summary, api_key=gemini_key)
+                    exp = explain_check(summary["check_name"], summary, api_key=None)
                     exp_dict = exp.to_dict() if hasattr(exp, "to_dict") else exp
                     _, grid_html, _ = _format_ai_explanation_html(fid, exp_dict)
                     finding_explanations[fid] = grid_html

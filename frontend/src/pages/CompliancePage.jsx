@@ -30,6 +30,18 @@ const COMPLIANCE_MODULES = [
     regulation: "SOX",
     description: "Sarbanes-Oxley Act audit trail completeness and timestamp integrity.",
   },
+  {
+    key: "gdpr",
+    label: "GDPR",
+    regulation: "GDPR",
+    description: "General Data Protection Regulation personal data, identifiers, and location linkage.",
+  },
+  {
+    key: "ccpa",
+    label: "CCPA",
+    regulation: "CCPA",
+    description: "California Consumer Privacy Act personal identifiers and consumer data protection.",
+  },
 ];
 
 export default function CompliancePage() {

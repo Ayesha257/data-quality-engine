@@ -121,3 +121,44 @@ class TestComplianceOptIn:
         )
         assert sox_resp.status_code == 200
         assert "SOX" in sox_resp.text
+
+    def test_gdpr_and_ccpa_opt_in_and_serving(self, api_client):
+        privacy_csv = b"full_name,ssn,email,ip_address,city\nAlice,123-45-6789,alice@test.com,192.168.1.1,Seattle\n"
+        resp = api_client.post(
+            "/v1/files/upload?client_id=opt_in_client&write_report=true&compliance_modules=GDPR&compliance_modules=CCPA",
+            files={"file": ("privacy_test.csv", io.BytesIO(privacy_csv), "text/csv")},
+        )
+        assert resp.status_code in (200, 202), resp.text
+        run_id = resp.json()["run_id"]
+        status = _wait(api_client, run_id)
+        assert status["status"] == "completed"
+
+        # Verify list_runs includes GDPR and CCPA
+        runs_resp = api_client.get("/v1/clients/opt_in_client/runs")
+        assert runs_resp.status_code == 200
+        matched_run = next((r for r in runs_resp.json()["runs"] if r["run_id"] == run_id), None)
+        assert matched_run is not None
+        assert "GDPR" in matched_run["compliance_modules"]
+        assert "CCPA" in matched_run["compliance_modules"]
+
+        # Verify GDPR report served
+        gdpr_resp = api_client.get(
+            f"/v1/runs/{run_id}/compliance-report", params={"regulation": "GDPR"}
+        )
+        assert gdpr_resp.status_code == 200
+        assert "GDPR" in gdpr_resp.text
+        assert "inspect-compliance-btn" in gdpr_resp.text
+
+        # Verify CCPA report served
+        ccpa_resp = api_client.get(
+            f"/v1/runs/{run_id}/compliance-report", params={"regulation": "CCPA"}
+        )
+        assert ccpa_resp.status_code == 200
+        assert "CCPA" in ccpa_resp.text
+
+        # Verify unselected modules return 404
+        hipaa_resp = api_client.get(
+            f"/v1/runs/{run_id}/compliance-report", params={"regulation": "HIPAA"}
+        )
+        assert hipaa_resp.status_code == 404
+

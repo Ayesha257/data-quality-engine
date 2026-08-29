@@ -231,13 +231,126 @@
     },
     "GDPR": {
       "full_name": "General Data Protection Regulation",
-      "description": "Stub — rules to be added in a later phase.",
-      "rules": []
+      "description": "EU personal-data identifiability checks: government IDs, email, IP (online identifier), date of birth, and name plus location linkage. Does not implement CCPA unique-identifier or CPRA precise-geolocation rules.",
+      "rules": [
+        {
+          "id": "gdpr_ssn",
+          "field_name": "ssn",
+          "display_name": "Social Security Number (SSN)",
+          "detection_type": "regex",
+          "pattern": "^(?!000|666|9\\d{2})\\d{3}-(?!00)\\d{2}-(?!0000)\\d{4}$",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_ssn",
+          "notes": "9-digit US SSN with invalid area (000, 666, 900-999), group (00), and serial (0000) exclusion. Masked to last 4 digits."
+        },
+        {
+          "id": "gdpr_national_id",
+          "field_name": "national_id",
+          "display_name": "National Identity Number",
+          "detection_type": "regex",
+          "pattern": "\\b\\d{5}-?\\d{7}-?\\d\\b",
+          "confidence": "high",
+          "detector": "backend.engine.pii.detect_pii._CNIC_RE",
+          "notes": "National identity number detection referencing existing CNIC/national identifier PII pattern."
+        },
+        {
+          "id": "gdpr_email",
+          "field_name": "email",
+          "display_name": "Email Address",
+          "detection_type": "regex",
+          "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+          "confidence": "high",
+          "detector": "backend.engine.pii.detect_pii._EMAIL_RE",
+          "notes": "Email address detection referencing existing email PII pattern."
+        },
+        {
+          "id": "gdpr_ip_address",
+          "field_name": "ip_address",
+          "display_name": "IP Address (IPv4 / IPv6)",
+          "detection_type": "regex",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_ip_address",
+          "notes": "IPv4 and IPv6 network address detection."
+        },
+        {
+          "id": "gdpr_full_name_geolocation",
+          "field_name": "full_name_geolocation",
+          "display_name": "Name and Geolocation Linkage",
+          "detection_type": "column_keyword",
+          "confidence": "medium",
+          "detector": "backend.compliance.privacy_detectors.detect_name_geolocation_columns",
+          "notes": "Co-occurrence of person name columns and geolocation columns (latitude, longitude, address, city, postal code)."
+        },
+        {
+          "id": "gdpr_date_of_birth",
+          "field_name": "date_of_birth",
+          "display_name": "Date of Birth",
+          "detection_type": "regex_keyword",
+          "confidence": "medium",
+          "detector": "backend.compliance.privacy_detectors.detect_dob_candidate",
+          "notes": "Date-of-birth candidate matching date format regex gated by column name fuzzy matching (dob, birth, date_of_birth)."
+        }
+      ]
     },
     "CCPA": {
-      "full_name": "California Consumer Privacy Act",
-      "description": "Stub — rules to be added in a later phase.",
-      "rules": []
+      "full_name": "California Consumer Privacy Act / CPRA",
+      "description": "California consumer privacy rules covering identifiers, contact data, unique personal identifiers, and CPRA sensitive precise geolocation. Distinct from GDPR identifiability checks (national ID, date of birth, name-location linkage).",
+      "rules": [
+        {
+          "id": "ccpa_ssn",
+          "field_name": "ssn",
+          "display_name": "Social Security Number (SSN)",
+          "detection_type": "regex",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_ssn",
+          "notes": "Government identifier under CCPA/CPRA. Same SSN validator as GDPR; reported separately because the legal category is California personal information, not EU personal data."
+        },
+        {
+          "id": "ccpa_email",
+          "field_name": "email",
+          "display_name": "Email Address",
+          "detection_type": "regex",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_email",
+          "notes": "Identifier listed in CCPA §1798.140."
+        },
+        {
+          "id": "ccpa_ip_address",
+          "field_name": "ip_address",
+          "display_name": "IP Address (device identifier)",
+          "detection_type": "regex",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_ip_address",
+          "notes": "Treated as a unique device/online identifier under CCPA, not as an EU online identifier (GDPR Recital 30)."
+        },
+        {
+          "id": "ccpa_phone",
+          "field_name": "phone",
+          "display_name": "Telephone Number",
+          "detection_type": "regex_keyword",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_phone",
+          "notes": "Telephone numbers are a CCPA identifier category. Column-name gated to avoid flagging order IDs."
+        },
+        {
+          "id": "ccpa_precise_geolocation",
+          "field_name": "precise_geolocation",
+          "display_name": "Precise Geolocation (CPRA sensitive)",
+          "detection_type": "column_keyword",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_precise_geolocation_columns",
+          "notes": "CPRA sensitive personal information: latitude/longitude/GPS/coordinates. Does not flag city/state/ZIP alone."
+        },
+        {
+          "id": "ccpa_unique_personal_identifier",
+          "field_name": "unique_personal_identifier",
+          "display_name": "Unique Personal Identifier",
+          "detection_type": "column_keyword",
+          "confidence": "high",
+          "detector": "backend.compliance.privacy_detectors.detect_unique_identifier_columns",
+          "notes": "Device IDs, advertising IDs, cookie IDs, customer/account IDs, household IDs — CCPA unique personal identifiers."
+        }
+      ]
     }
   }
 }

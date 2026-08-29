@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from typing import Iterable
 
-ALLOWED_COMPLIANCE_MODULES = ("HIPAA", "PCI_DSS", "GLBA", "SOX")
+ALLOWED_COMPLIANCE_MODULES = ("HIPAA", "PCI_DSS", "GLBA", "SOX", "GDPR", "CCPA")
 
 _ALIASES = {
     "PCI": "PCI_DSS",
     "PCIDSS": "PCI_DSS",
     "PCI-DSS": "PCI_DSS",
+    "CPRA": "CCPA",
+    "CCPA_CPRA": "CCPA",
+    "CCPA-CPRA": "CCPA",
+    "CCPA/CPRA": "CCPA",
 }
 
 

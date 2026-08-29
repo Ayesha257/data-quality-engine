@@ -30,7 +30,7 @@ REGULATIONS = ("HIPAA", "PCI_DSS", "GLBA", "SOX")
 
 def _legacy_unparameterized_reports(reports_dir: Path) -> list[Path]:
     """Files matching the old scan-time name with no regulation token."""
-    known = ("hipaa", "pci_dss", "glba", "sox")
+    known = ("hipaa", "pci_dss", "glba", "sox", "gdpr", "ccpa")
     found = []
     for path in reports_dir.glob("*_compliance_report.html"):
         name = path.name.lower()
